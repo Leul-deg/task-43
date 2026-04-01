@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ item.title }}</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('news.index') }}">Back</a>
+</div>
+
+<div id="news-item">
+  {% include "news/partials/detail_card.html" %}
+</div>
+
+{% if current_user and current_user.role == 'content_editor' %}
+  <div class="card mt-4">
+    <div class="card-body">
+      <h5 class="card-title">Edit</h5>
+      <form hx-put="{{ url_for('news.update_item', item_id=item.id) }}" hx-target="#news-item" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">Title</label>
+          <input class="form-control" name="title" value="{{ item.title }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Summary</label>
+          <textarea class="form-control" name="summary" rows="2">{{ item.summary }}</textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Content</label>
+          <textarea class="form-control" name="content" rows="6">{{ item.content }}</textarea>
+        </div>
+        <button class="btn btn-primary" type="submit">Save</button>
+      </form>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

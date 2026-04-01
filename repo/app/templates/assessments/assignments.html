@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">My Assignments</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('assessments.index') }}">Back</a>
+</div>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-striped mb-0">
+          <thead>
+            <tr>
+              <th>Assessment</th>
+              <th>Status</th>
+              <th>Due</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for assignment in assignments %}
+              <tr>
+                <td>{{ assessment_map[assignment.assessment_id].title if assessment_map.get(assignment.assessment_id) else assignment.assessment_id }}</td>
+                <td>
+                  {% if assignment.status == 'assigned' %}
+                    <span class="badge bg-secondary">Assigned</span>
+                  {% elif assignment.status == 'in_progress' %}
+                    <span class="badge bg-warning text-dark">In Progress</span>
+                  {% elif assignment.status == 'completed' %}
+                    <span class="badge bg-info">Completed</span>
+                  {% else %}
+                    <span class="badge bg-success">Graded</span>
+                  {% endif %}
+                </td>
+                <td>{{ assignment.due_date or '—' }}</td>
+                <td>
+                  {% if assignment.status == 'assigned' %}
+                    <form method="post" action="{{ url_for('assessments.start_assignment', assignment_id=assignment.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-sm btn-outline-primary" type="submit">Start</button>
+                    </form>
+                  {% else %}
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('assessments.take', assignment_id=assignment.id) }}">View</a>
+                    {% if assignment.status in ['completed', 'graded'] %}
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('assessments.results', assignment_id=assignment.id) }}">Results</a>
+                    {% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}

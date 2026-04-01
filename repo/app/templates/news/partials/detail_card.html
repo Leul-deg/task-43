@@ -1,0 +1,7 @@
+<div class="card">
+  <div class="card-body">
+    <p class="text-muted">{{ item.author or 'Unknown' }} · {{ item.published_date or item.ingested_at }}</p>
+    <div class="mb-3">{{ item.summary|safe }}</div>
+    <div>{{ item.content|safe }}</div>
+  </div>
+</div>

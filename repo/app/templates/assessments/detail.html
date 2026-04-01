@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ assessment.title }}</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('assessments.index') }}">Back</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <p>{{ assessment.description }}</p>
+    <div>Time limit: {{ assessment.time_limit_minutes or 'None' }} minutes</div>
+    <div>Passing score: {{ assessment.passing_score_percent }}%</div>
+    <div class="mt-2" id="publish-toggle">
+      {% include "assessments/partials/publish_button.html" %}
+    </div>
+  </div>
+</div>
+
+{% if user and user.role == 'trainer' %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">Questions</h5>
+      <div class="table-responsive">
+        <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Type</th>
+              <th>Answers</th>
+              <th>Points</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="question-list">
+            {% for question in questions %}
+              {% include "assessments/partials/question_row.html" %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <form hx-post="{{ url_for('assessments.add_question', assessment_id=assessment.id) }}" hx-target="#question-list" hx-swap="beforeend" class="row g-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-4"><input class="form-control" name="question_text" placeholder="Question" required></div>
+        <div class="col-md-2">
+          <select class="form-select" name="question_type">
+            <option value="multiple_choice">Multiple Choice</option>
+            <option value="true_false">True/False</option>
+            <option value="short_answer">Short Answer</option>
+          </select>
+        </div>
+        <div class="col-md-2"><input class="form-control" name="options" placeholder='Options JSON'></div>
+        <div class="col-md-2"><input class="form-control" name="correct_answer" placeholder="Correct answer"></div>
+        <div class="col-md-1"><input class="form-control" name="points" value="1"></div>
+        <div class="col-md-1 d-grid"><button class="btn btn-outline-primary" type="submit">Add</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">Assign to Staff</h5>
+      <form method="post" action="{{ url_for('assessments.assign_assessment', assessment_id=assessment.id) }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-8">
+          <label class="form-label">Staff</label>
+          <select class="form-select" name="user_ids" multiple>
+            {% for staff in staff_users %}
+              <option value="{{ staff.id }}">{{ staff.username }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Due Date</label>
+          <input type="date" class="form-control" name="due_date">
+        </div>
+        <div class="col-md-3 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button class="btn btn-primary" type="submit">Assign</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% else %}
+  {% if assignment %}
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Your Assignment</h5>
+        <div>Status: {{ assignment.status }}</div>
+        {% if assignment.status == 'assigned' %}
+          <form method="post" action="{{ url_for('assessments.start_assignment', assignment_id=assignment.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-primary mt-2" type="submit">Start</button>
+          </form>
+        {% elif assignment.status == 'in_progress' %}
+          <a class="btn btn-outline-primary mt-2" href="{{ url_for('assessments.take', assignment_id=assignment.id) }}">Continue</a>
+        {% elif assignment.status == 'completed' %}
+          <a class="btn btn-outline-primary mt-2" href="{{ url_for('assessments.results', assignment_id=assignment.id) }}">View Results</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

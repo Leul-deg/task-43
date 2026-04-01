@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sports Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}">
+    <script src="{{ url_for('static', filename='vendor/htmx.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  </head>
+  <body class="bg-light" hx-headers='{"X-CSRFToken": "{{ csrf_token() }}"}'>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">Sports Hub</a>
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#navbarNav"
+          aria-controls="navbarNav"
+          aria-expanded="false"
+          aria-label="Toggle navigation"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            {% if current_user %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('products.index') }}">Products</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('inventory.index') }}">Inventory</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('pricing.index') }}">Pricing</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('search.index') }}">Search</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('news.index') }}">News</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('assessments.index') }}">Assessments</a></li>
+              {% if current_user.role == 'admin' %}
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.index') }}">Admin</a></li>
+              {% endif %}
+            {% endif %}
+          </ul>
+          <ul class="navbar-nav">
+            {% if current_user %}
+              <li class="nav-item me-2"><a class="btn btn-outline-secondary btn-sm mt-1" href="{{ url_for('auth.change_password') }}">Change Password</a></li>
+              <li class="nav-item">
+                <form method="post" action="{{ url_for('auth.logout') }}" class="d-flex">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-outline-light" type="submit">Logout</button>
+                </form>
+              </li>
+            {% else %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.login') }}">Login</a></li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <main class="container py-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="py-4 bg-dark text-light">
+      <div class="container text-center">
+        <small>&copy; Sports Hub</small>
+      </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/hmac.js') }}"></script>
+    <script>
+      document.body.addEventListener('htmx:beforeRequest', (event) => {
+        const target = event.detail.elt;
+        if (!target) return;
+        const button = target.closest('button') || (target.tagName === 'BUTTON' ? target : null);
+        if (button) {
+          button.disabled = true;
+          if (!button.dataset.spinnerAdded) {
+            const spinner = document.createElement('span');
+            spinner.className = 'spinner-border spinner-border-sm ms-2';
+            spinner.setAttribute('role', 'status');
+            spinner.setAttribute('aria-hidden', 'true');
+            button.appendChild(spinner);
+            button.dataset.spinnerAdded = 'true';
+          }
+        }
+      });
+      document.body.addEventListener('htmx:afterRequest', (event) => {
+        const target = event.detail.elt;
+        if (!target) return;
+        const button = target.closest('button') || (target.tagName === 'BUTTON' ? target : null);
+        if (button) {
+          button.disabled = false;
+          const spinner = button.querySelector('.spinner-border');
+          if (spinner) {
+            spinner.remove();
+          }
+          button.dataset.spinnerAdded = '';
+        }
+      });
+    </script>
+  </body>
+</html>

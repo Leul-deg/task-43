@@ -1,0 +1,55 @@
+{% for item in products %}
+  <tr id="product-{{ item.product.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <td>
+      {% if item.product.primary_image %}
+        <img src="{{ url_for('static', filename=item.product.primary_image) }}" width="50" height="50" class="rounded" alt="{{ item.product.name }}">
+      {% else %}
+        <span class="text-muted">—</span>
+      {% endif %}
+    </td>
+    <td>{{ item.product.name }}</td>
+    <td>{{ item.variant.sku }}</td>
+    <td>{{ item.category.name if item.category else "—" }}</td>
+    <td>${{ "%.2f"|format(item.variant.base_price) }}</td>
+    <td>{{ item.stock_total }}</td>
+    <td>
+      {% if item.product.is_published %}
+        <span class="badge bg-success">Published</span>
+      {% else %}
+        <span class="badge bg-secondary">Hidden</span>
+      {% endif %}
+    </td>
+    <td>
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('products.detail', product_id=item.product.id) }}">View</a>
+      {% if current_user and current_user.role in ['admin', 'content_editor'] %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('products.edit_product', product_id=item.product.id) }}">Edit</a>
+        <button class="btn btn-sm btn-outline-warning" hx-post="{{ url_for('products.toggle_publish', product_id=item.product.id) }}" hx-include="#product-{{ item.product.id }} input[name='csrf_token']" hx-target="#publish-{{ item.product.id }}" hx-swap="outerHTML">Toggle</button>
+        <button class="btn btn-sm btn-outline-danger" hx-delete="{{ url_for('products.delete_product', product_id=item.product.id) }}" hx-include="#product-{{ item.product.id }} input[name='csrf_token']" hx-target="#product-{{ item.product.id }}" hx-swap="outerHTML">Delete</button>
+      {% endif %}
+      <span id="publish-{{ item.product.id }}" class="ms-2">
+        {% set product = item.product %}{% include "products/partials/publish_button.html" %}
+      </span>
+    </td>
+  </tr>
+{% endfor %}
+
+{% if pagination.pages > 1 %}
+  <tr>
+    <td colspan="8">
+      <nav>
+        <ul class="pagination mb-0">
+          {% for page_num in pagination.iter_pages() %}
+            {% if page_num %}
+              <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                <a class="page-link" href="{{ url_for('products.index', page=page_num, **filters) }}" hx-get="{{ url_for('products.index', page=page_num, **filters) }}" hx-target="#results" hx-swap="innerHTML">{{ page_num }}</a>
+              </li>
+            {% else %}
+              <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </nav>
+    </td>
+  </tr>
+{% endif %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Inventory Dashboard</h3>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('inventory.batches') }}">Batches</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('inventory.warehouses') }}">Warehouses</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('inventory.stock_count_form') }}">Stock Count</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Expiring in 7 days <span class="badge bg-danger">7d</span></h5>
+        <ul class="list-group list-group-flush">
+          {% for batch, variant, product, bin in expiring_7 %}
+            <li class="list-group-item d-flex justify-content-between">
+              <span>{{ product.name }} ({{ variant.sku }}) - {{ bin.label }}</span>
+              <span>{{ batch.quantity }} | {{ batch.expiration_date }}</span>
+            </li>
+          {% else %}
+            <li class="list-group-item text-muted">No expiring batches.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Expiring in 30 days <span class="badge bg-warning text-dark">30d</span></h5>
+        <ul class="list-group list-group-flush">
+          {% for batch, variant, product, bin in expiring_30 %}
+            <li class="list-group-item d-flex justify-content-between">
+              <span>{{ product.name }} ({{ variant.sku }}) - {{ bin.label }}</span>
+              <span>{{ batch.quantity }} | {{ batch.expiration_date }}</span>
+            </li>
+          {% else %}
+            <li class="list-group-item text-muted">No expiring batches.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Warehouses</h5>
+    <div class="row g-2">
+      {% for warehouse in warehouses %}
+        <div class="col-md-4">
+          <div class="border rounded p-3">
+            <strong>{{ warehouse.name }}</strong>
+            <div class="text-muted">{{ warehouse.location or 'No location' }}</div>
+          </div>
+        </div>
+      {% else %}
+        <p class="text-muted">No warehouses yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Stock Summary</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>SKU</th>
+            <th>Total Stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for variant_id, name, sku, total_qty in stock_summary %}
+            <tr>
+              <td>{{ name }}</td>
+              <td>{{ sku }}</td>
+              <td>{{ total_qty }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,7 @@
+<div class="card h-100">
+  <div class="card-body">
+    <h5 class="card-title"><a href="{{ url_for('news.detail', item_id=item.id) }}">{{ item.title }}</a></h5>
+    <p class="card-text text-muted">{{ item.summary or item.content[:150] }}</p>
+    <small class="text-muted">{{ item.ingested_at }}</small>
+  </div>
+</div>

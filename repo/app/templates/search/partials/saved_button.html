@@ -1,0 +1,6 @@
+<span id="saved-{{ saved.id }}" class="d-inline-flex align-items-center gap-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('search.index', **params) }}">{{ saved.name }}</a>
+  <button class="btn btn-sm btn-outline-warning" hx-post="{{ url_for('search.toggle_pin', saved_id=saved.id) }}" hx-include="#saved-{{ saved.id }} input[name='csrf_token']" hx-target="#saved-{{ saved.id }}" hx-swap="outerHTML">{{ 'Unpin' if saved.is_pinned else 'Pin' }}</button>
+  <button class="btn btn-sm btn-outline-danger" hx-delete="{{ url_for('search.delete_saved', saved_id=saved.id) }}" hx-include="#saved-{{ saved.id }} input[name='csrf_token']" hx-target="#saved-{{ saved.id }}" hx-swap="outerHTML">Delete</button>
+</span>

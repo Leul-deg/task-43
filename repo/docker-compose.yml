@@ -1,0 +1,14 @@
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - db_data:/app/data
+      - uploads:/app/app/static/uploads
+      - ./watch_folder:/app/watch_folder
+      - ./quarantine:/app/quarantine
+    env_file: .env
+volumes:
+  db_data:
+  uploads:

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Search</h3>
+  <form method="post" action="{{ url_for('search.save_search') }}" class="d-flex gap-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="type" value="{{ type }}">
+    <input type="hidden" name="category_id" value="{{ category_id }}">
+    <input type="hidden" name="tag_id" value="{{ tag_id }}">
+    <input type="hidden" name="min_price" value="{{ min_price }}">
+    <input type="hidden" name="max_price" value="{{ max_price }}">
+    <input type="hidden" name="date_from" value="{{ date_from }}">
+    <input type="hidden" name="date_to" value="{{ date_to }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input class="form-control" name="name" placeholder="Save search name" required>
+    <button class="btn btn-outline-primary" type="submit">Save</button>
+  </form>
+</div>
+
+<div class="mb-3">
+  <div class="d-flex flex-wrap gap-2" id="saved-searches">
+    {% for item in saved_searches if item.saved.is_pinned %}
+      {% set saved = item.saved %}{% set params = item.params %}{% include "search/partials/saved_button.html" %}
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Query</label>
+        <input
+          class="form-control"
+          name="q"
+          value="{{ q }}"
+          hx-get="{{ url_for('search.index') }}"
+          hx-trigger="keyup changed delay:300ms"
+          hx-target="#results"
+          hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']"
+        >
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Type</label>
+        <select class="form-select" name="type" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+          <option value="all" {% if type == 'all' %}selected{% endif %}>All</option>
+          <option value="products" {% if type == 'products' %}selected{% endif %}>Products</option>
+          <option value="news" {% if type == 'news' %}selected{% endif %}>News</option>
+          <option value="questions" {% if type == 'questions' %}selected{% endif %}>Questions</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Category</label>
+        <select class="form-select" name="category_id" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+          <option value="">All</option>
+          {% for category in categories %}
+            <option value="{{ category.id }}" {% if category_id == category.id|string %}selected{% endif %}>{{ category.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Tag</label>
+        <select class="form-select" name="tag_id" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+          <option value="">All</option>
+          {% for tag in tags %}
+            <option value="{{ tag.id }}" {% if tag_id == tag.id|string %}selected{% endif %}>{{ tag.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Sort</label>
+        <select class="form-select" name="sort" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+          <option value="recency" {% if sort == 'recency' %}selected{% endif %}>Recency</option>
+          <option value="price" {% if sort == 'price' %}selected{% endif %}>Price</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Min Price</label>
+        <input class="form-control" name="min_price" value="{{ min_price }}" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Max Price</label>
+        <input class="form-control" name="max_price" value="{{ max_price }}" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Date From</label>
+        <input class="form-control" type="date" name="date_from" value="{{ date_from }}" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Date To</label>
+        <input class="form-control" type="date" name="date_to" value="{{ date_to }}" hx-get="{{ url_for('search.index') }}" hx-trigger="change" hx-target="#results" hx-include="[name='q'],[name='type'],[name='category_id'],[name='tag_id'],[name='min_price'],[name='max_price'],[name='date_from'],[name='date_to'],[name='sort']">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="results">
+  {% include "search/partials/results.html" %}
+</div>
+{% endblock %}

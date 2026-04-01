@@ -1,0 +1,22 @@
+<tr id="source-{{ source.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <td><input class="form-control form-control-sm" name="name" value="{{ source.name }}"></td>
+  <td>
+    <select class="form-select form-select-sm" name="source_type">
+      <option value="rss" {% if source.source_type == 'rss' %}selected{% endif %}>rss</option>
+      <option value="atom" {% if source.source_type == 'atom' %}selected{% endif %}>atom</option>
+      <option value="xml" {% if source.source_type == 'xml' %}selected{% endif %}>xml</option>
+      <option value="json" {% if source.source_type == 'json' %}selected{% endif %}>json</option>
+      <option value="html" {% if source.source_type == 'html' %}selected{% endif %}>html</option>
+    </select>
+  </td>
+  <td><input class="form-control form-control-sm" name="filename_prefix" value="{{ source.filename_prefix or '' }}" placeholder="e.g. espn"></td>
+  <td>
+    <input type="checkbox" name="is_allowed" {% if source.is_allowed %}checked{% endif %}>
+  </td>
+  <td><input class="form-control form-control-sm" name="parsing_rules" value="{{ source.parsing_rules or '' }}"></td>
+  <td class="text-end">
+    <button class="btn btn-sm btn-outline-secondary" hx-put="{{ url_for('news.update_source', source_id=source.id) }}" hx-include="#source-{{ source.id }} input, #source-{{ source.id }} select" hx-target="#source-{{ source.id }}" hx-swap="outerHTML">Save</button>
+    <button class="btn btn-sm btn-outline-danger" hx-delete="{{ url_for('news.delete_source', source_id=source.id) }}" hx-include="#source-{{ source.id }} input[name='csrf_token']" hx-target="#source-{{ source.id }}" hx-swap="outerHTML">Delete</button>
+  </td>
+</tr>

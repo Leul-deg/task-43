@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Quarantine</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('news.index') }}">Back</a>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-striped mb-0">
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Reason</th>
+            <th>Quarantined At</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in files %}
+            <tr>
+              <td>{{ file.filename }}</td>
+              <td>{{ file.reason }}</td>
+              <td>{{ file.quarantined_at }}</td>
+              <td class="text-end">
+                <form method="post" action="{{ url_for('news.release_quarantine', file_id=file.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-primary" type="submit">Release</button>
+                </form>
+                <button class="btn btn-sm btn-outline-danger" hx-delete="{{ url_for('news.delete_quarantine', file_id=file.id) }}" hx-include="closest tr input[name='csrf_token']" hx-target="closest tr" hx-swap="outerHTML">Delete</button>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+<tr id="variant-{{ variant.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <td><input class="form-control form-control-sm" name="sku" value="{{ variant.sku }}"></td>
+  <td><input class="form-control form-control-sm" name="base_price" value="{{ variant.base_price }}"></td>
+  <td><input class="form-control form-control-sm" name="category_id" value="{{ variant.category_id or '' }}"></td>
+  <td>
+    <button class="btn btn-sm btn-outline-secondary" hx-put="{{ url_for('products.update_variant', variant_id=variant.id) }}" hx-include="#variant-{{ variant.id }} input" hx-target="#variant-{{ variant.id }}" hx-swap="outerHTML">Save</button>
+  </td>
+</tr>

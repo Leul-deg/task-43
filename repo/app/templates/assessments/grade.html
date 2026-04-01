@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Grade Assignment</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('assessments.results', assignment_id=assignment.id) }}">Back</a>
+</div>
+
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="card">
+    <div class="card-body">
+      {% for answer in answers %}
+        {% set question = (questions | selectattr('id', 'equalto', answer.question_id) | list | first) %}
+        <div class="mb-3">
+          <label class="form-label">{{ question.question_text }}</label>
+          <div class="mb-2 text-muted">Answer: {{ answer.answer_text }}</div>
+          {% if question.question_type == 'short_answer' %}
+            <input class="form-control" type="number" name="score_{{ answer.id }}" value="{{ answer.points_earned }}" max="{{ question.points }}">
+          {% else %}
+            <div>Auto-graded: {{ answer.points_earned }} / {{ question.points }}</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit">Save Grades</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

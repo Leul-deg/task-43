@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ product.name }}</h3>
+  {% if current_user and current_user.role in ['admin', 'content_editor'] %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('products.edit_product', product_id=product.id) }}">Edit</a>
+  {% endif %}
+</div>
+
+<div id="product-detail" class="card mb-4">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        {% if product.primary_image %}
+          <img src="{{ url_for('static', filename=product.primary_image) }}" class="img-fluid rounded" alt="{{ product.name }}">
+        {% else %}
+          <div class="bg-light border rounded p-4 text-center text-muted">No image</div>
+        {% endif %}
+      </div>
+      <div class="col-md-8">
+        <p class="text-muted mb-1">Slug: {{ product.slug }}</p>
+        <div class="mb-2">{{ product.description|safe }}</div>
+        <div>Purchase limit: {{ product.purchase_limit or "—" }}</div>
+        <div>Status: {{ "Published" if product.is_published else "Hidden" }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Variants</h5>
+    <div class="table-responsive">
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Base Price</th>
+            <th>Category</th>
+            <th>Effective Price</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="variant-list">
+          {% for variant in variants %}
+            <tr id="variant-{{ variant.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <td><input class="form-control form-control-sm" name="sku" value="{{ variant.sku }}"></td>
+              <td><input class="form-control form-control-sm" name="base_price" value="{{ variant.base_price }}"></td>
+              <td><input class="form-control form-control-sm" name="category_id" value="{{ variant.category_id or '' }}"></td>
+              <td>
+                {% set price = effective_prices[variant.id] %}
+                {% if price[0] %}
+                  ${{ "%.2f"|format(price[0]) }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if current_user and current_user.role in ['admin', 'content_editor'] %}
+                  <button class="btn btn-sm btn-outline-secondary" hx-put="{{ url_for('products.update_variant', variant_id=variant.id) }}" hx-include="#variant-{{ variant.id }} input" hx-target="#variant-{{ variant.id }}" hx-swap="outerHTML">Save</button>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if current_user and current_user.role in ['admin', 'content_editor'] %}
+      <form class="row g-2" hx-post="{{ url_for('products.add_variant', product_id=product.id) }}" hx-target="#variant-list" hx-swap="beforeend">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-3"><input class="form-control" name="sku" placeholder="SKU" required></div>
+        <div class="col-md-3"><input class="form-control" name="base_price" placeholder="Base price" required></div>
+        <div class="col-md-3"><input class="form-control" name="category_id" placeholder="Category ID"></div>
+        <div class="col-md-3 d-grid"><button class="btn btn-outline-primary" type="submit">Add Variant</button></div>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Tiered Pricing</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Variant</th>
+            <th>Min Quantity</th>
+            <th>Unit Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for variant in variants %}
+            {% for tier in tiered_prices[variant.id] %}
+              <tr>
+                <td>{{ variant.sku }}</td>
+                <td>{{ tier.min_quantity }}</td>
+                <td>${{ "%.2f"|format(tier.unit_price) }}</td>
+              </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

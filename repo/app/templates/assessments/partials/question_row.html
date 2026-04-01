@@ -1,0 +1,20 @@
+<tr id="question-{{ question.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <td><input class="form-control form-control-sm" name="question_text" value="{{ question.question_text }}"></td>
+  <td>
+    <select class="form-select form-select-sm" name="question_type">
+      <option value="multiple_choice" {% if question.question_type == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
+      <option value="true_false" {% if question.question_type == 'true_false' %}selected{% endif %}>True/False</option>
+      <option value="short_answer" {% if question.question_type == 'short_answer' %}selected{% endif %}>Short Answer</option>
+    </select>
+  </td>
+  <td>
+    <input class="form-control form-control-sm" name="options" value="{{ question.options or '' }}" placeholder='Options JSON'>
+    <input class="form-control form-control-sm mt-1" name="correct_answer" value="{{ question.correct_answer }}" placeholder="Correct answer">
+  </td>
+  <td><input class="form-control form-control-sm" name="points" value="{{ question.points }}"></td>
+  <td class="text-end">
+    <button class="btn btn-sm btn-outline-secondary" hx-put="{{ url_for('assessments.update_question', question_id=question.id) }}" hx-include="#question-{{ question.id }} input, #question-{{ question.id }} select" hx-target="#question-{{ question.id }}" hx-swap="outerHTML">Save</button>
+    <button class="btn btn-sm btn-outline-danger" hx-delete="{{ url_for('assessments.delete_question', question_id=question.id) }}" hx-include="#question-{{ question.id }} input[name='csrf_token']" hx-target="#question-{{ question.id }}" hx-swap="outerHTML">Delete</button>
+  </td>
+</tr>

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Results</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('assessments.index') }}">Back</a>
+</div>
+
+{% if result %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <div>Total Score: {{ result.total_score }} / {{ result.max_score }}</div>
+      <div>Percentage: {{ '%.2f'|format(result.percentage) }}%</div>
+      <div>Status: {{ 'Passed' if result.passed else 'Failed' }}</div>
+    </div>
+  </div>
+{% endif %}
+
+{% if user and user.role == 'trainer' %}
+  <a class="btn btn-outline-primary mb-3" href="{{ url_for('assessments.grade', assignment_id=assignment.id) }}">Grade Short Answers</a>
+{% endif %}
+
+  <div class="card">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>Question</th>
+              <th>Your Answer</th>
+              <th>Points</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for question in questions %}
+              {% set answer = (answers | selectattr('question_id', 'equalto', question.id) | list | first) %}
+              <tr>
+                <td>{{ question.question_text }}</td>
+                <td>{{ answer.answer_text if answer else '' }}</td>
+                <td>{{ answer.points_earned if answer else 0 }} / {{ question.points }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}

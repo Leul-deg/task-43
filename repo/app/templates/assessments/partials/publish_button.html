@@ -1,0 +1,5 @@
+<form hx-post="{{ url_for('assessments.toggle_publish', assessment_id=assessment.id) }}" hx-target="#publish-toggle" hx-swap="innerHTML" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Unpublish' if assessment.is_published else 'Publish' }}</button>
+  <span class="badge bg-secondary ms-2">{{ 'Published' if assessment.is_published else 'Draft' }}</span>
+</form>

@@ -1,0 +1,3 @@
+{% for item in saved_searches %}
+  {% set saved = item.saved %}{% set params = item.params %}{% include "search/partials/saved_button.html" %}
+{% endfor %}

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Batches</h3>
+  <a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}">Back</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Warehouse</label>
+        <select name="warehouse_id" class="form-select" hx-get="{{ url_for('inventory.batches') }}" hx-trigger="change" hx-target="#batch-results" hx-include="[name='warehouse_id'],[name='variant_id'],[name='expiring_within']">
+          <option value="">All</option>
+          {% for warehouse in warehouses %}
+            <option value="{{ warehouse.id }}" {% if filters.warehouse_id == warehouse.id|string %}selected{% endif %}>{{ warehouse.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Variant</label>
+        <select name="variant_id" class="form-select" hx-get="{{ url_for('inventory.batches') }}" hx-trigger="change" hx-target="#batch-results" hx-include="[name='warehouse_id'],[name='variant_id'],[name='expiring_within']">
+          <option value="">All</option>
+          {% for variant in variants %}
+            <option value="{{ variant.id }}" {% if filters.variant_id == variant.id|string %}selected{% endif %}>{{ variant.sku }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Expiring Within (days)</label>
+        <input class="form-control" name="expiring_within" value="{{ filters.expiring_within }}" hx-get="{{ url_for('inventory.batches') }}" hx-trigger="change" hx-target="#batch-results" hx-include="[name='warehouse_id'],[name='variant_id'],[name='expiring_within']">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" action="{{ url_for('inventory.create_batch') }}" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-3">
+        <label class="form-label">Variant</label>
+        <select name="variant_id" class="form-select" required>
+          {% for variant in variants %}
+            <option value="{{ variant.id }}">{{ variant.sku }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Bin</label>
+        <select name="bin_id" class="form-select" required>
+          {% for bin in bins %}
+            <option value="{{ bin.id }}">{{ warehouse_lookup.get(bin.warehouse_id) }} - {{ bin.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Quantity</label>
+        <input class="form-control" name="quantity" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Expiration</label>
+        <input class="form-control" type="date" name="expiration_date">
+      </div>
+      <div class="col-md-2 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button class="btn btn-primary" type="submit">Add Batch</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="batch-results">
+  <div class="table-responsive">
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>SKU</th>
+          <th>Warehouse</th>
+          <th>Bin</th>
+          <th>Quantity</th>
+          <th>Expires</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for batch, variant, product, bin, warehouse in batches %}
+          <tr>
+            <td>{{ product.name }}</td>
+            <td>{{ variant.sku }}</td>
+            <td>{{ warehouse.name }}</td>
+            <td>{{ bin.label }}</td>
+            <td>{{ batch.quantity }}</td>
+            <td>{{ batch.expiration_date or '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pagination.pages > 1 %}
+    <nav>
+      <ul class="pagination">
+        {% for page_num in pagination.iter_pages() %}
+          {% if page_num %}
+            <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('inventory.batches', page=page_num, **filters) }}" hx-get="{{ url_for('inventory.batches', page=page_num, **filters) }}" hx-target="#batch-results" hx-swap="innerHTML">{{ page_num }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </nav>
+  {% endif %}
+</div>
+{% endblock %}

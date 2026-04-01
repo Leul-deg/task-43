@@ -1,0 +1,12 @@
+<tr id="anomaly-{{ alert.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <td>{{ alert.rule_triggered }}</td>
+  <td>{{ alert.severity }}</td>
+  <td>{{ alert.detail }}</td>
+  <td>{{ 'Reviewed' if alert.is_reviewed else 'Unreviewed' }}</td>
+  <td class="text-end">
+    {% if not alert.is_reviewed %}
+      <button class="btn btn-sm btn-outline-primary" hx-post="{{ url_for('admin.review_anomaly', alert_id=alert.id) }}" hx-include="#anomaly-{{ alert.id }} input[name='csrf_token']" hx-target="#anomaly-{{ alert.id }}" hx-swap="outerHTML">Review</button>
+    {% endif %}
+  </td>
+</tr>

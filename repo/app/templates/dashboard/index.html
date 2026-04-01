@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h4 class="card-title">Welcome, {{ username }}</h4>
+    <span class="badge bg-secondary">{{ role }}</span>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <a href="{{ url_for('products.index') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm summary-card summary-products">
+        <div class="card-body">
+          <h5 class="card-title">Products</h5>
+          <p class="display-6 mb-0">{{ published_products }}</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('inventory.index') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm summary-card summary-inventory">
+        <div class="card-body">
+          <h5 class="card-title">Inventory Alerts</h5>
+          <p class="display-6 mb-0">{{ expiring_7 }}</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('news.index') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm summary-card summary-news">
+        <div class="card-body">
+          <h5 class="card-title">News</h5>
+          <p class="display-6 mb-0">{{ news_24h }}</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('assessments.index') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm summary-card summary-assessments">
+        <div class="card-body">
+          <h5 class="card-title">Assessments</h5>
+          <p class="display-6 mb-0">{{ pending_assignments }}</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% if current_user and current_user.role == 'admin' %}
+    <div class="col-md-4">
+      <a href="{{ url_for('admin.index') }}" class="text-decoration-none">
+        <div class="card h-100 shadow-sm summary-card summary-anomalies">
+          <div class="card-body">
+            <h5 class="card-title">Anomaly Alerts</h5>
+            <p class="display-6 mb-0">{{ unreviewed_anomalies }}</p>
+          </div>
+        </div>
+      </a>
+    </div>
+  {% endif %}
+  <div class="col-md-4">
+    <a href="{{ url_for('search.index') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm summary-card">
+        <div class="card-body">
+          <h5 class="card-title">Saved Searches</h5>
+          <p class="display-6 mb-0">{{ saved_search_count }}</p>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+{% endblock %}
