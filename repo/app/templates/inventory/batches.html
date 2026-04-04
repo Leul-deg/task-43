@@ -71,47 +71,6 @@
 </div>
 
 <div id="batch-results">
-  <div class="table-responsive">
-    <table class="table table-striped">
-      <thead>
-        <tr>
-          <th>Product</th>
-          <th>SKU</th>
-          <th>Warehouse</th>
-          <th>Bin</th>
-          <th>Quantity</th>
-          <th>Expires</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for batch, variant, product, bin, warehouse in batches %}
-          <tr>
-            <td>{{ product.name }}</td>
-            <td>{{ variant.sku }}</td>
-            <td>{{ warehouse.name }}</td>
-            <td>{{ bin.label }}</td>
-            <td>{{ batch.quantity }}</td>
-            <td>{{ batch.expiration_date or '—' }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% if pagination.pages > 1 %}
-    <nav>
-      <ul class="pagination">
-        {% for page_num in pagination.iter_pages() %}
-          {% if page_num %}
-            <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
-              <a class="page-link" href="{{ url_for('inventory.batches', page=page_num, **filters) }}" hx-get="{{ url_for('inventory.batches', page=page_num, **filters) }}" hx-target="#batch-results" hx-swap="innerHTML">{{ page_num }}</a>
-            </li>
-          {% else %}
-            <li class="page-item disabled"><span class="page-link">…</span></li>
-          {% endif %}
-        {% endfor %}
-      </ul>
-    </nav>
-  {% endif %}
+  {% include "inventory/partials/batch_results.html" %}
 </div>
 {% endblock %}

@@ -14,6 +14,46 @@ from .models import UsedNonce, User, utcnow
 logger = logging.getLogger(__name__)
 
 
+def _sorted_form_items():
+    form_items = []
+    for key in sorted(request.form.keys()):
+        values = request.form.getlist(key)
+        for value in values:
+            form_items.append((key, value))
+    return form_items
+
+
+def _multipart_body_hash():
+    form_items = _sorted_form_items()
+    body_string = urlencode(form_items, doseq=True)
+
+    file_records = []
+    for key in sorted(request.files.keys()):
+        files = sorted(
+            request.files.getlist(key),
+            key=lambda item: (
+                item.filename or "",
+                item.content_type or "",
+                item.content_length or 0,
+            ),
+        )
+        for item in files:
+            stream = item.stream
+            position = stream.tell()
+            file_bytes = item.read()
+            stream.seek(position)
+            file_hash = hashlib.sha256(file_bytes).hexdigest()
+            file_records.append(
+                f"{key}\t{item.filename or ''}\t{item.content_type or ''}\t{len(file_bytes)}\t{file_hash}"
+            )
+
+    if file_records:
+        canonical = body_string + "\n--files--\n" + "\n".join(file_records)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    return hashlib.sha256(body_string.encode("utf-8")).hexdigest()
+
+
 def role_required(*allowed_roles):
     def decorator(fn):
         @wraps(fn)
@@ -62,22 +102,25 @@ def hmac_required(fn):
             logger.warning("HMAC rejected: nonce replay")
             return "", 401
 
-        if request.mimetype in {"multipart/form-data", "application/x-www-form-urlencoded"}:
-            form_items = []
-            for key in sorted(request.form.keys()):
-                values = request.form.getlist(key)
-                for value in values:
-                    form_items.append((key, value))
-            body_string = urlencode(form_items, doseq=True)
+        if request.mimetype == "multipart/form-data":
+            body_hash = _multipart_body_hash()
+        elif request.mimetype == "application/x-www-form-urlencoded":
+            body_string = urlencode(_sorted_form_items(), doseq=True)
             body_hash = hashlib.sha256(body_string.encode("utf-8")).hexdigest()
         else:
             body = request.get_data(cache=True) or b""
             body_hash = hashlib.sha256(body).hexdigest()
-        payload = f"{request.method}{request.path}{timestamp}{body_hash}{nonce}".encode("utf-8")
+        payload = f"{request.method}{request.path}{timestamp}{body_hash}{nonce}".encode(
+            "utf-8"
+        )
 
         identity = get_jwt_identity()
         user = User.query.get(identity) if identity else None
-        key = user.get_hmac_key() if user and user.hmac_key else current_app.config.get("HMAC_SECRET", "")
+        key = (
+            user.get_hmac_key()
+            if user and user.hmac_key
+            else current_app.config.get("HMAC_SECRET", "")
+        )
         expected = hmac.new(key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
         if not hmac.compare_digest(expected, signature):

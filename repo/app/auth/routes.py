@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta
 
 import hashlib
@@ -78,7 +79,11 @@ def login():
                     db.session.commit()
 
             flash("Invalid username or password.", "danger")
-            logger.warning("Failed login for user=%s ip=%s", username, AuditLog.hash_ip(request.remote_addr))
+            logger.warning(
+                "Failed login for user=%s ip=%s",
+                username,
+                AuditLog.hash_ip(request.remote_addr),
+            )
             return render_template("auth/login.html", form=form), 401
 
         user.failed_attempts = 0
@@ -96,7 +101,9 @@ def login():
         logger.info("Login success user=%s", username)
 
         session_start = utcnow().isoformat()
-        access_token = create_access_token(identity=user.id, additional_claims={"role": user.role})
+        access_token = create_access_token(
+            identity=user.id, additional_claims={"role": user.role}
+        )
         refresh_token = create_refresh_token(
             identity=user.id, additional_claims={"session_start": session_start}
         )
@@ -153,11 +160,15 @@ def sign_request():
     method = data.get("method", "")
     path = data.get("path", "")
     body_string = data.get("body_string", "")
+    body_hash = data.get("body_hash", "")
 
     timestamp = utcnow().isoformat() + "Z"
     nonce = secrets.token_hex(16)
-    body_hash = hashlib.sha256(body_string.encode("utf-8")).hexdigest()
-    payload = f"{method}{path}{timestamp}{body_hash}{nonce}".encode("utf-8")
+    if isinstance(body_hash, str) and re.fullmatch(r"[0-9a-f]{64}", body_hash):
+        normalized_body_hash = body_hash
+    else:
+        normalized_body_hash = hashlib.sha256(body_string.encode("utf-8")).hexdigest()
+    payload = f"{method}{path}{timestamp}{normalized_body_hash}{nonce}".encode("utf-8")
     key = user.get_hmac_key()
     signature = hmac_mod.new(key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
     return jsonify({"signature": signature, "timestamp": timestamp, "nonce": nonce})

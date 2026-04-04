@@ -1,7 +1,16 @@
 from datetime import datetime, timedelta
 from ..pricing.services import validate_booking_window, calculate_effective_price
 
-from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm.exc import StaleDataError
@@ -24,6 +33,17 @@ from ..models import (
 from ..utils import safe_int, safe_float
 
 inventory_bp = Blueprint("inventory", __name__)
+
+
+def _is_htmx_request():
+    return request.headers.get("HX-Request") == "true"
+
+
+def _inventory_form_error(message, fallback_endpoint, status_code=400):
+    if _is_htmx_request():
+        return message, status_code
+    flash(message, "danger")
+    return redirect(url_for(fallback_endpoint))
 
 
 @inventory_bp.route("/", methods=["GET"])
@@ -82,7 +102,9 @@ def index():
 def warehouses():
     warehouses = Warehouse.query.order_by(Warehouse.name.asc()).all()
     bins = Bin.query.all()
-    return render_template("inventory/warehouses.html", warehouses=warehouses, bins=bins)
+    return render_template(
+        "inventory/warehouses.html", warehouses=warehouses, bins=bins
+    )
 
 
 @inventory_bp.route("/warehouses", methods=["POST"])
@@ -149,20 +171,22 @@ def batches():
     bins = Bin.query.all()
 
     warehouse_lookup = {warehouse.id: warehouse.name for warehouse in warehouses}
-    return render_template(
-        "inventory/batches.html",
-        batches=pagination.items,
-        pagination=pagination,
-        warehouses=warehouses,
-        variants=variants,
-        bins=bins,
-        warehouse_lookup=warehouse_lookup,
-        filters={
+    context = {
+        "batches": pagination.items,
+        "pagination": pagination,
+        "warehouses": warehouses,
+        "variants": variants,
+        "bins": bins,
+        "warehouse_lookup": warehouse_lookup,
+        "filters": {
             "warehouse_id": warehouse_id,
             "variant_id": variant_id,
             "expiring_within": expiring_within,
         },
-    )
+    }
+    if request.headers.get("HX-Request") == "true":
+        return render_template("inventory/partials/batch_results.html", **context)
+    return render_template("inventory/batches.html", **context)
 
 
 @inventory_bp.route("/batches", methods=["POST"])
@@ -176,13 +200,15 @@ def create_batch():
         try:
             exp_date = datetime.strptime(expiration_value, "%Y-%m-%d").date()
         except ValueError:
-            return "Invalid date format. Use YYYY-MM-DD.", 400
+            return _inventory_form_error(
+                "Invalid date format. Use YYYY-MM-DD.", "inventory.batches"
+            )
     variant_id = safe_int(request.form.get("variant_id"))
     bin_id = safe_int(request.form.get("bin_id"))
     if not ProductVariant.query.get(variant_id):
-        return "Invalid variant ID.", 400
+        return _inventory_form_error("Invalid variant ID.", "inventory.batches")
     if not Bin.query.get(bin_id):
-        return "Invalid bin ID.", 400
+        return _inventory_form_error("Invalid bin ID.", "inventory.batches")
     batch = Batch(
         variant_id=variant_id,
         bin_id=bin_id,
@@ -231,7 +257,9 @@ def submit_stock_count():
 
     variance_reason = request.form.get("variance_reason", "").strip()
     if (variance_pct > 2 or abs(variance) > 10) and not variance_reason:
-        return "Variance reason required.", 400
+        return _inventory_form_error(
+            "Variance reason required.", "inventory.stock_count_form"
+        )
 
     count = StockCount(
         batch_id=batch_id,
@@ -265,7 +293,9 @@ def reservations():
     if user and user.role not in ["admin", "inventory_manager"]:
         query = query.filter(Reservation.user_id == identity)
     reservations_list = query.order_by(Reservation.held_at.desc()).all()
-    return render_template("inventory/reservations.html", reservations=reservations_list)
+    return render_template(
+        "inventory/reservations.html", reservations=reservations_list
+    )
 
 
 @inventory_bp.route("/reservations", methods=["POST"])
@@ -278,27 +308,43 @@ def create_reservation():
     user_id = get_jwt_identity()
     variant = ProductVariant.query.get(variant_id)
     if not variant:
-        return "Variant not found.", 404
+        return _inventory_form_error(
+            "Variant not found.", "inventory.reservations", status_code=404
+        )
     product = Product.query.get(variant.product_id)
     if product and product.purchase_limit and quantity > product.purchase_limit:
-        return f"Maximum {product.purchase_limit} units per order.", 400
-    booking_date_str = request.form.get("booking_datetime") or request.form.get("booking_date")
+        return _inventory_form_error(
+            f"Maximum {product.purchase_limit} units per order.",
+            "inventory.reservations",
+        )
+    booking_date_str = request.form.get("booking_datetime") or request.form.get(
+        "booking_date"
+    )
     duration_minutes = safe_int(request.form.get("duration_minutes"))
     if not booking_date_str:
-        return "Booking datetime is required.", 400
+        return _inventory_form_error(
+            "Booking datetime is required.", "inventory.reservations"
+        )
     if not duration_minutes or duration_minutes <= 0:
-        return "Booking duration is required.", 400
+        return _inventory_form_error(
+            "Booking duration is required.", "inventory.reservations"
+        )
     try:
         booking_dt = datetime.strptime(booking_date_str, "%Y-%m-%dT%H:%M")
     except ValueError:
-        return "Invalid booking date format. Use YYYY-MM-DDTHH:MM.", 400
+        return _inventory_form_error(
+            "Invalid booking date format. Use YYYY-MM-DDTHH:MM.",
+            "inventory.reservations",
+        )
     valid, reason = validate_booking_window(variant_id, booking_dt, duration_minutes)
     if not valid:
-        return reason, 400
+        return _inventory_form_error(reason, "inventory.reservations")
     buffer = int(current_app.config.get("OVERBOOKING_BUFFER", 2))
 
     now = utcnow()
-    unit_price, total_price, _ = calculate_effective_price(variant_id, quantity, booking_dt)
+    unit_price, total_price, _ = calculate_effective_price(
+        variant_id, quantity, booking_dt
+    )
 
     try:
         with db.session.begin_nested():
@@ -317,7 +363,11 @@ def create_reservation():
                 .scalar()
             )
             if held + quantity > total_stock + buffer:
-                return "Insufficient stock.", 409
+                return _inventory_form_error(
+                    "Insufficient stock.",
+                    "inventory.reservations",
+                    status_code=409,
+                )
 
             variant.version += 1
             db.session.add(variant)
@@ -358,8 +408,15 @@ def create_reservation():
         db.session.commit()
     except (StaleDataError, OperationalError):
         db.session.rollback()
-        return "The system is experiencing heavy load and this item's stock changed. Please try again.", 409
-    return "", 201
+        return _inventory_form_error(
+            "The system is experiencing heavy load and this item's stock changed. Please try again.",
+            "inventory.reservations",
+            status_code=409,
+        )
+    if _is_htmx_request():
+        return "", 201
+    flash("Reservation hold created.", "success")
+    return redirect(url_for("inventory.reservations"))
 
 
 @inventory_bp.route("/reservations/<int:reservation_id>/confirm", methods=["POST"])

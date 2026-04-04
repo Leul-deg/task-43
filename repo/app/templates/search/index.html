@@ -2,7 +2,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">Search</h3>
-  <form method="post" action="{{ url_for('search.save_search') }}" class="d-flex gap-2">
+  <form
+    method="post"
+    action="{{ url_for('search.save_search') }}"
+    class="d-flex gap-2"
+    hx-post="{{ url_for('search.save_search') }}"
+    hx-target="#saved-searches"
+    hx-swap="beforeend"
+  >
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="q" value="{{ q }}">
     <input type="hidden" name="type" value="{{ type }}">

@@ -35,6 +35,97 @@
     return search.toString();
   }
 
+  async function sha256HexFromText(text) {
+    const data = new TextEncoder().encode(text || '');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return [...new Uint8Array(hashBuffer)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async function sha256HexFromFile(file) {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    return [...new Uint8Array(hashBuffer)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async function buildBodyPayloadFromForm(form) {
+    const formData = new FormData(form);
+    const entries = [];
+    const fileEntries = [];
+
+    for (const [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        fileEntries.push({ key, file: value });
+      } else {
+        entries.push([key, value]);
+      }
+    }
+
+    entries.sort((a, b) =>
+      a[0] === b[0]
+        ? String(a[1]).localeCompare(String(b[1]))
+        : a[0].localeCompare(b[0])
+    );
+
+    const search = new URLSearchParams();
+    entries.forEach(([key, value]) => search.append(key, value));
+    const bodyString = search.toString();
+
+    if (!fileEntries.length) {
+      return {
+        bodyString,
+        bodyHash: await sha256HexFromText(bodyString),
+      };
+    }
+
+    const normalizedFiles = [];
+    for (const { key, file } of fileEntries) {
+      if (!file || !file.name) {
+        continue;
+      }
+      normalizedFiles.push({
+        key,
+        name: file.name,
+        type: file.type || '',
+        size: file.size || 0,
+        hash: await sha256HexFromFile(file),
+      });
+    }
+
+    normalizedFiles.sort((a, b) => {
+      if (a.key !== b.key) {
+        return a.key.localeCompare(b.key);
+      }
+      if (a.name !== b.name) {
+        return a.name.localeCompare(b.name);
+      }
+      if (a.type !== b.type) {
+        return a.type.localeCompare(b.type);
+      }
+      return a.size - b.size;
+    });
+
+    if (!normalizedFiles.length) {
+      return {
+        bodyString,
+        bodyHash: await sha256HexFromText(bodyString),
+      };
+    }
+
+    const fileLines = normalizedFiles.map(
+      (item) =>
+        `${item.key}\t${item.name}\t${item.type}\t${item.size}\t${item.hash}`
+    );
+    const canonical = `${bodyString}\n--files--\n${fileLines.join('\n')}`;
+    return {
+      bodyString,
+      bodyHash: await sha256HexFromText(canonical),
+    };
+  }
+
   function getCsrfToken() {
     try {
       const raw = document.body.getAttribute('hx-headers');
@@ -46,7 +137,7 @@
     return '';
   }
 
-  async function signRequest(method, path, bodyString) {
+  async function signRequest(method, path, payload) {
     const resp = await fetch('/auth/sign', {
       method: 'POST',
       headers: {
@@ -54,7 +145,12 @@
         'X-CSRFToken': getCsrfToken(),
       },
       credentials: 'same-origin',
-      body: JSON.stringify({ method, path, body_string: bodyString || '' }),
+      body: JSON.stringify({
+        method,
+        path,
+        body_string: payload?.bodyString || '',
+        body_hash: payload?.bodyHash || '',
+      }),
     });
     if (!resp.ok) {
       return null;
@@ -86,19 +182,28 @@
     delete elt._hmacPending;
     evt.preventDefault();
 
-    const bodyString = buildBodyStringFromParams(pending.parameters);
-    signRequest(pending.verb, pending.path, bodyString).then(function (result) {
-      if (!result) {
-        return;
-      }
-      htmx.ajax(pending.verb, pending.path, {
-        source: elt,
-        values: pending.parameters,
-        headers: {
-          'X-Signature': result.signature,
-          'X-Timestamp': result.timestamp,
-          'X-Nonce': result.nonce,
-        },
+    const form = elt instanceof HTMLFormElement ? elt : elt.closest('form');
+    const payloadPromise = form
+      ? buildBodyPayloadFromForm(form)
+      : Promise.resolve({ bodyString: buildBodyStringFromParams(pending.parameters) });
+
+    payloadPromise.then(function (payload) {
+      signRequest(pending.verb, pending.path, payload).then(function (result) {
+        if (!result) {
+          return;
+        }
+        const requestOptions = {
+          source: form || elt,
+          headers: {
+            'X-Signature': result.signature,
+            'X-Timestamp': result.timestamp,
+            'X-Nonce': result.nonce,
+          },
+        };
+        if (!form) {
+          requestOptions.values = pending.parameters;
+        }
+        htmx.ajax(pending.verb, pending.path, requestOptions);
       });
     });
   });
@@ -121,8 +226,8 @@
     }
     event.preventDefault();
     const action = form.getAttribute('action') || window.location.pathname;
-    const bodyString = buildBodyStringFromForm(form);
-    const result = await signRequest(method, action, bodyString);
+    const payload = await buildBodyPayloadFromForm(form);
+    const result = await signRequest(method, action, payload);
     if (!result) {
       form.submit();
       return;
@@ -147,7 +252,12 @@
     const contentType = response.headers.get('Content-Type') || '';
     if (contentType.includes('text/html')) {
       const html = await response.text();
-      document.documentElement.innerHTML = html;
+      const isFullDocument = /<html[\s>]/i.test(html) && /<body[\s>]/i.test(html);
+      if (isFullDocument) {
+        document.documentElement.innerHTML = html;
+      } else {
+        window.location.reload();
+      }
     } else {
       window.location.reload();
     }

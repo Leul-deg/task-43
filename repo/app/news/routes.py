@@ -3,7 +3,15 @@ import shutil
 from datetime import datetime
 
 import bleach
-from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from ..decorators import hmac_required, role_required
@@ -13,7 +21,20 @@ from ..utils import safe_int
 
 news_bp = Blueprint("news", __name__)
 
-ALLOWED_TAGS = ["p", "br", "strong", "em", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a"]
+ALLOWED_TAGS = [
+    "p",
+    "br",
+    "strong",
+    "em",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "a",
+]
 
 
 @news_bp.route("/", methods=["GET"])
@@ -41,13 +62,15 @@ def index():
         page=page, per_page=25, error_out=False
     )
     sources = NewsSource.query.order_by(NewsSource.name.asc()).all()
-    return render_template(
-        "news/list.html",
-        items=pagination.items,
-        pagination=pagination,
-        sources=sources,
-        filters={"source_id": source_id, "date_from": date_from, "date_to": date_to},
-    )
+    context = {
+        "items": pagination.items,
+        "pagination": pagination,
+        "sources": sources,
+        "filters": {"source_id": source_id, "date_from": date_from, "date_to": date_to},
+    }
+    if request.headers.get("HX-Request") == "true":
+        return render_template("news/partials/results.html", **context)
+    return render_template("news/list.html", **context)
 
 
 @news_bp.route("/<int:item_id>", methods=["GET"])
@@ -118,8 +141,12 @@ def delete_source(source_id):
 def update_item(item_id):
     item = NewsItem.query.get_or_404(item_id)
     item.title = request.form.get("title", item.title)
-    item.summary = bleach.clean(request.form.get("summary", item.summary or ""), tags=ALLOWED_TAGS)
-    item.content = bleach.clean(request.form.get("content", item.content or ""), tags=ALLOWED_TAGS)
+    item.summary = bleach.clean(
+        request.form.get("summary", item.summary or ""), tags=ALLOWED_TAGS
+    )
+    item.content = bleach.clean(
+        request.form.get("content", item.content or ""), tags=ALLOWED_TAGS
+    )
     db.session.commit()
     return render_template("news/partials/detail_card.html", item=item)
 
@@ -132,7 +159,9 @@ def logs():
     pagination = IngestionLog.query.order_by(IngestionLog.started_at.desc()).paginate(
         page=page, per_page=25, error_out=False
     )
-    return render_template("news/logs.html", logs=pagination.items, pagination=pagination)
+    return render_template(
+        "news/logs.html", logs=pagination.items, pagination=pagination
+    )
 
 
 @news_bp.route("/quarantine", methods=["GET"])

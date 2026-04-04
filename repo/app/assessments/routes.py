@@ -25,6 +25,12 @@ def _current_user():
     return User.query.get(identity) if identity else None
 
 
+def _require_trainer_ownership(assessment):
+    identity = get_jwt_identity()
+    if not identity or assessment.created_by != identity:
+        return abort(403)
+
+
 @assessments_bp.route("/", methods=["GET"])
 @jwt_required()
 @role_required("admin", "trainer", "staff")
@@ -93,6 +99,7 @@ def detail(assessment_id):
 @hmac_required
 def update_assessment(assessment_id):
     assessment = Assessment.query.get_or_404(assessment_id)
+    _require_trainer_ownership(assessment)
     assessment.title = request.form.get("title", assessment.title)
     assessment.description = request.form.get("description", assessment.description)
     assessment.time_limit_minutes = (
@@ -113,9 +120,12 @@ def update_assessment(assessment_id):
 @hmac_required
 def toggle_publish(assessment_id):
     assessment = Assessment.query.get_or_404(assessment_id)
+    _require_trainer_ownership(assessment)
     assessment.is_published = not assessment.is_published
     db.session.commit()
-    return render_template("assessments/partials/publish_button.html", assessment=assessment)
+    return render_template(
+        "assessments/partials/publish_button.html", assessment=assessment
+    )
 
 
 @assessments_bp.route("/<int:assessment_id>/questions", methods=["POST"])
@@ -123,6 +133,8 @@ def toggle_publish(assessment_id):
 @role_required("trainer")
 @hmac_required
 def add_question(assessment_id):
+    assessment = Assessment.query.get_or_404(assessment_id)
+    _require_trainer_ownership(assessment)
     question = Question(
         assessment_id=assessment_id,
         question_text=request.form.get("question_text", ""),
@@ -142,10 +154,14 @@ def add_question(assessment_id):
 @hmac_required
 def update_question(question_id):
     question = Question.query.get_or_404(question_id)
+    assessment = Assessment.query.get_or_404(question.assessment_id)
+    _require_trainer_ownership(assessment)
     question.question_text = request.form.get("question_text", question.question_text)
     question.question_type = request.form.get("question_type", question.question_type)
     question.options = request.form.get("options", question.options)
-    question.correct_answer = request.form.get("correct_answer", question.correct_answer)
+    question.correct_answer = request.form.get(
+        "correct_answer", question.correct_answer
+    )
     question.points = safe_int(request.form.get("points", question.points))
     db.session.commit()
     return render_template("assessments/partials/question_row.html", question=question)
@@ -157,6 +173,8 @@ def update_question(question_id):
 @hmac_required
 def delete_question(question_id):
     question = Question.query.get_or_404(question_id)
+    assessment = Assessment.query.get_or_404(question.assessment_id)
+    _require_trainer_ownership(assessment)
     db.session.delete(question)
     db.session.commit()
     return "", 204
@@ -167,6 +185,8 @@ def delete_question(question_id):
 @role_required("trainer")
 @hmac_required
 def assign_assessment(assessment_id):
+    assessment = Assessment.query.get_or_404(assessment_id)
+    _require_trainer_ownership(assessment)
     user_ids = request.form.getlist("user_ids")
     due_date = request.form.get("due_date")
     for user_id in user_ids:
@@ -175,7 +195,9 @@ def assign_assessment(assessment_id):
             user_id=safe_int(user_id),
             assigned_by=get_jwt_identity(),
             assigned_at=utcnow(),
-            due_date=datetime.strptime(due_date, "%Y-%m-%d").date() if due_date else None,
+            due_date=datetime.strptime(due_date, "%Y-%m-%d").date()
+            if due_date
+            else None,
             status="assigned",
         )
         db.session.add(assignment)
@@ -187,9 +209,11 @@ def assign_assessment(assessment_id):
 @jwt_required()
 @role_required("staff")
 def assignments():
-    assignments_list = AssessmentAssignment.query.filter_by(
-        user_id=get_jwt_identity()
-    ).order_by(AssessmentAssignment.assigned_at.desc()).all()
+    assignments_list = (
+        AssessmentAssignment.query.filter_by(user_id=get_jwt_identity())
+        .order_by(AssessmentAssignment.assigned_at.desc())
+        .all()
+    )
     assessment_ids = [assignment.assessment_id for assignment in assignments_list]
     assessments = Assessment.query.filter(Assessment.id.in_(assessment_ids)).all()
     assessment_map = {assessment.id: assessment for assessment in assessments}
@@ -263,7 +287,9 @@ def submit_assignment(assignment_id):
         max_score += question.points
 
         if question.question_type in ["multiple_choice", "true_false"]:
-            is_correct = answer_text.strip().lower() == question.correct_answer.strip().lower()
+            is_correct = (
+                answer_text.strip().lower() == question.correct_answer.strip().lower()
+            )
             points_earned = question.points if is_correct else 0
             total_score += points_earned
         else:
@@ -341,8 +367,9 @@ def results(assignment_id):
 @hmac_required
 def grade(assignment_id):
     assignment = AssessmentAssignment.query.get_or_404(assignment_id)
-    questions = Question.query.filter_by(assessment_id=assignment.assessment_id).all()
     assessment = Assessment.query.get_or_404(assignment.assessment_id)
+    _require_trainer_ownership(assessment)
+    questions = Question.query.filter_by(assessment_id=assignment.assessment_id).all()
     answers = UserAnswer.query.filter_by(assignment_id=assignment.id).all()
     if request.method == "POST":
         total_score = 0
