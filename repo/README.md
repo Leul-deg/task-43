@@ -3,33 +3,50 @@
 ## Features
 - Product catalog with variants, tags, tiered pricing, and CSV import/export
 - Inventory management with warehouses, bins, batches, FEFO picking, and reservations
-- Pricing rules and effective price calculations
+- Pricing rules and effective price calculations with booking-window enforcement
 - Unified search across products, news, and assessment questions
 - News ingestion with quarantine and admin review
 - Assessments with assignments, submissions, auto-grading, and trainer grading
 - Admin dashboards for anomalies, audit log, and user management
-- HMAC-signed mutating requests and JWT auth
+- Server-side HMAC-SHA256 request signing via `/auth/sign` and JWT auth
 
-## Quick Start
-1. cp .env.example .env
-   - Before starting the app, replace the placeholder secrets in `.env` with secure random values (the app will refuse to start if they remain unchanged).
-2. docker compose up --build
-3. Open http://localhost:5000
-4. Login: admin / <your-custom-ADMIN_PASSWORD>
+## Quick Start (Docker — Production)
+1. `cp .env.example .env` and replace all secrets with secure random values, remove `DEMO_MODE`
+2. `docker compose up --build`
+3. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
+
+The default `docker-compose.yml` reads from `.env` (not committed to version control). Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed secrets or known weak placeholders.
+
+## Quick Start (Docker — Demo/Evaluation)
+1. `docker compose -f docker-compose.yml -f docker-compose.demo.yml up --build`
+2. Open http://localhost:5000
+3. Login: `admin` / `DemoAdmin2026Secure!`
+
+The `docker-compose.demo.yml` override reads `.env.example` which ships with `DEMO_MODE=true`, allowing demo secrets for evaluation. A prominent warning is logged on startup.
 
 ## Local Development (without Docker)
-1. `python3 -m venv venv && source venv/bin/activate`
+1. `python3 -m venv .venv && source .venv/bin/activate`
 2. `pip install -r requirements.txt`
-3. `cp .env.example .env.local`
+3. `cp .env.example .env.local` and edit the values (replace demo secrets with secure random strings)
 4. `export $(cat .env.local | xargs) && export FLASK_APP=app:create_app`
 5. `flask db-init && flask run`
-6. Open http://localhost:5000 — Login: admin / <your-custom-ADMIN_PASSWORD>
- 7. Because `_hmac_key` relies on a SameSite cookie that is secure by default, the local dev server runs over HTTP so the cookie is set with `secure=False`. If you switch to HTTPS locally (via a reverse proxy or TLS), the cookie will honor the `secure` flag and only send over HTTPS.
+6. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
 
 ## Commands
 - Run tests: `./run_tests.sh`
 - Ingest news: `flask ingest-news`
 - Cleanup nonces: `flask cleanup-nonces`
+- Rotate HMAC keys: `flask rotate-hmac-keys` (users must re-login after rotation)
+
+## Security Model
+- **Authentication**: Username/password with minimum 12 characters, salted scrypt hashing, account lockout after 5 failed attempts for 15 minutes.
+- **Sessions**: Short-lived JWT access tokens (30 min) stored in cookies, with refresh tokens capped at an absolute 8-hour session ceiling.
+- **HMAC Signing**: All mutating API requests require HMAC-SHA256 signatures. HMAC keys are stored server-side (encrypted with Fernet at rest) and never exposed to the client. The `/auth/sign` endpoint generates signatures server-side; the client calls this endpoint before submitting mutating requests.
+- **Anti-Replay**: Each signed request includes a nonce and timestamp. Nonces are stored for 24 hours to prevent replay; timestamp skew is limited to ±5 minutes.
+- **CSRF Protection**: Flask-WTF CSRF is enabled globally. HTMX requests include the CSRF token via a global `hx-headers` attribute on `<body>`. The `/auth/sign` endpoint validates CSRF tokens on all requests.
+- **Rate Limiting**: 60 requests/minute per authenticated user (keyed by JWT identity).
+- **Anomaly Detection**: Rule-based alerts for repeated failed logins, rapid search bursts, and frequent reservation holds, recorded in `AnomalyAlert` and `AuditLog` tables for admin review.
+- **Sensitive Data**: HMAC keys encrypted with Fernet at rest; audit log IP addresses hashed with SHA-256 before storage.
 
 ## Verification Checklist
 - Create a product with tiered pricing and verify effective price
@@ -37,10 +54,10 @@
 - Run stock count with >2% variance and confirm reason required
 - Save a search and toggle pinned state
 - Ingest a sample RSS/JSON file and confirm news appears
+- Request a quote via `/pricing/calculate` with a too-soon booking time and confirm 400 rejection
 
 ## Known Limitations
-- **SQLite Concurrency**: SQLite does not support row-level locking. The reservation system uses `begin_nested()` (savepoints) to prevent data corruption but does not guarantee serializable isolation under heavy concurrent load. For high-traffic production, consider PostgreSQL.
-- **HMAC Cookie**: The `_hmac_key` cookie is set with `httponly=False` to enable client-side HMAC signing. This is a documented, accepted trade-off. XSS mitigations (bleach sanitization, output encoding, SameSite=Strict) are in place.
+- **SQLite Concurrency**: SQLite does not support row-level locking. The reservation system uses `begin_nested()` (savepoints) with optimistic locking (`version_id_col`) and `busy_timeout=5000` to handle concurrent writes gracefully. For high-traffic production, consider PostgreSQL.
 - **Scheduler Duplication**: Running Gunicorn with multiple workers may duplicate APScheduler jobs. Use `--workers 1` or switch to an external scheduler (e.g., cron) for multi-worker deployments.
 
 ## Security Maintenance

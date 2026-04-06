@@ -7,7 +7,7 @@ from ..decorators import hmac_required, role_required
 from ..extensions import db
 from ..models import PriceRule, ProductVariant
 from ..utils import safe_int, safe_float
-from .services import calculate_effective_price
+from .services import calculate_effective_price, validate_booking_window
 
 pricing_bp = Blueprint("pricing", __name__)
 
@@ -96,12 +96,19 @@ def calculate():
     variant_id = safe_int(request.args.get("variant_id"))
     quantity = safe_int(request.args.get("quantity", 1))
     booking_datetime_str = request.args.get("booking_datetime")
+    raw_duration = request.args.get("duration_minutes")
+    duration_minutes = safe_int(raw_duration) if raw_duration else None
     if not booking_datetime_str:
         return jsonify({"error": "booking_datetime is required (YYYY-MM-DDTHH:MM)"}), 400
     try:
         booking_datetime = datetime.strptime(booking_datetime_str, "%Y-%m-%dT%H:%M")
     except ValueError:
         return jsonify({"error": "Invalid booking_datetime format. Use YYYY-MM-DDTHH:MM."}), 400
+
+    valid, reason = validate_booking_window(variant_id, booking_datetime, duration_minutes)
+    if not valid:
+        return jsonify({"error": reason}), 400
+
     unit_price, total, applied_rules = calculate_effective_price(variant_id, quantity, booking_datetime)
     return jsonify(
         {

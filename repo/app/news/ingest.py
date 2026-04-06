@@ -189,13 +189,19 @@ def ingest_news():
 
         should_wait, retries = _should_backoff(filename)
         if should_wait:
+            logger.info("Deferred file=%s (backoff active, retries=%d)", filename, retries)
+            _record_log(filename, "deferred", f"Backoff active after {retries} retries", retries=retries)
             continue
 
         file_hash = _hash_file(file_path)
         if NewsItem.query.filter_by(file_hash=file_hash).first():
+            logger.info("Skipped duplicate file=%s hash=%s", filename, file_hash[:12])
+            _record_log(filename, "skipped", f"Duplicate hash: {file_hash[:12]}…")
             shutil.move(file_path, os.path.join(processed_folder, filename))
             continue
         if QuarantinedFile.query.filter_by(file_hash=file_hash).first():
+            logger.info("Skipped previously quarantined file=%s hash=%s", filename, file_hash[:12])
+            _record_log(filename, "skipped", f"Hash matches quarantined file: {file_hash[:12]}…")
             continue
 
         source_type = filename.split(".")[-1].lower()

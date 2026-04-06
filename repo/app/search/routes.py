@@ -270,6 +270,13 @@ def index():
                     severity="medium",
                 )
             )
+            db.session.add(
+                AuditLog(
+                    user_id=get_jwt_identity(),
+                    action="anomaly_detected",
+                    detail="Rule: rapid_search_burst — 20+ searches within 1 minute",
+                )
+            )
             db.session.commit()
 
     if request.headers.get("HX-Request") == "true":

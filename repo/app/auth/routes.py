@@ -75,6 +75,14 @@ def login():
                             severity="high",
                         )
                     )
+                    db.session.add(
+                        AuditLog(
+                            user_id=user.id,
+                            action="anomaly_detected",
+                            detail="Rule: multiple_failed_logins — 3+ failed logins within 10 minutes",
+                            ip_address=AuditLog.hash_ip(request.remote_addr),
+                        )
+                    )
                     db.session.commit()
 
             flash("Invalid username or password.", "danger")

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from app.extensions import db
 from app.models import PriceRule, Product, ProductVariant
 from app.pricing.services import calculate_effective_price, validate_booking_window
+from conftest import login_as
 
 
 def _create_variant():
@@ -115,3 +116,57 @@ def test_default_booking_window(app):
 
         valid, reason = validate_booking_window(variant.id, three_hours, duration_minutes=60)
         assert valid is True
+
+
+def test_quote_endpoint_rejects_invalid_window(app, client):
+    """GET /pricing/calculate must reject bookings outside the allowed window."""
+    with app.app_context():
+        variant = _create_variant()
+        db.session.add(
+            PriceRule(
+                variant_id=variant.id,
+                rule_type="discount",
+                value=5,
+                start_date=datetime.utcnow().date(),
+                end_date=datetime.utcnow().date() + timedelta(days=30),
+                advance_min_hours=2,
+                advance_max_days=10,
+            )
+        )
+        db.session.commit()
+        vid = variant.id
+
+    login_as(client, "staff")
+
+    too_soon = (datetime.utcnow() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M")
+    resp = client.get(f"/pricing/calculate?variant_id={vid}&quantity=1&booking_datetime={too_soon}")
+    assert resp.status_code == 400
+    assert b"too soon" in resp.data.lower()
+
+    too_far = (datetime.utcnow() + timedelta(days=20)).strftime("%Y-%m-%dT%H:%M")
+    resp = client.get(f"/pricing/calculate?variant_id={vid}&quantity=1&booking_datetime={too_far}")
+    assert resp.status_code == 400
+    assert b"too far" in resp.data.lower()
+
+    valid_dt = (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
+    resp = client.get(f"/pricing/calculate?variant_id={vid}&quantity=1&booking_datetime={valid_dt}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["unit_price"] is not None
+
+
+def test_quote_endpoint_rejects_short_duration(app, client):
+    """GET /pricing/calculate must reject durations below the minimum."""
+    with app.app_context():
+        variant = _create_variant()
+        vid = variant.id
+
+    login_as(client, "staff")
+
+    valid_dt = (datetime.utcnow() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
+    resp = client.get(
+        f"/pricing/calculate?variant_id={vid}&quantity=1"
+        f"&booking_datetime={valid_dt}&duration_minutes=30"
+    )
+    assert resp.status_code == 400
+    assert b"minimum" in resp.data.lower()

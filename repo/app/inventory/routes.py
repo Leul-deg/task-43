@@ -347,6 +347,13 @@ def create_reservation():
                     severity="medium",
                 )
             )
+            db.session.add(
+                AuditLog(
+                    user_id=user_id,
+                    action="anomaly_detected",
+                    detail="Rule: frequent_holds — 5+ holds within 2 minutes",
+                )
+            )
         db.session.add(
             AuditLog(
                 user_id=user_id,

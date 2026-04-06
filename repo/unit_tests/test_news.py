@@ -184,3 +184,83 @@ def test_resolve_source_no_match_returns_none(app):
 
         result = _resolve_source("feed.rss", "rss")
         assert result is None
+
+
+def test_ingestion_logs_deferred_on_backoff(app, tmp_path):
+    """Files within the backoff window produce an IngestionLog with status='deferred'."""
+    watch = tmp_path / "watch"
+    watch.mkdir()
+    (watch / "processed").mkdir()
+    app.config.update(WATCH_FOLDER=str(watch), QUARANTINE_FOLDER=str(tmp_path / "quarantine"))
+
+    with app.app_context():
+        db.session.add(NewsSource(name="RSS", source_type="rss", is_allowed=True, created_by=1))
+        db.session.commit()
+
+        _record_log("backoff.rss", "failed", "initial error", retries=1)
+        from app.models import utcnow
+        log = IngestionLog.query.filter_by(filename="backoff.rss").first()
+        log.completed_at = utcnow()
+        db.session.commit()
+
+        rss = watch / "backoff.rss"
+        rss.write_text('<rss><channel><item><title>T</title><description>S</description></item></channel></rss>')
+        ingest_news()
+
+        deferred = IngestionLog.query.filter_by(filename="backoff.rss", status="deferred").first()
+        assert deferred is not None
+        assert "Backoff active" in deferred.message
+
+
+def test_ingestion_logs_skipped_on_duplicate_hash(app, tmp_path):
+    """A file whose hash already exists in NewsItem produces status='skipped'."""
+    watch = tmp_path / "watch"
+    watch.mkdir()
+    (watch / "processed").mkdir()
+    app.config.update(WATCH_FOLDER=str(watch), QUARANTINE_FOLDER=str(tmp_path / "quarantine"))
+
+    with app.app_context():
+        db.session.add(NewsSource(name="RSS", source_type="rss", is_allowed=True, created_by=1))
+        db.session.commit()
+
+        content = '<rss><channel><item><title>Dup</title><description>S</description></item></channel></rss>'
+        rss = watch / "dup.rss"
+        rss.write_text(content)
+        ingest_news()
+        assert NewsItem.query.count() == 1
+
+        rss2 = watch / "dup.rss"
+        rss2.write_text(content)
+        ingest_news()
+
+        skipped = IngestionLog.query.filter_by(filename="dup.rss", status="skipped").first()
+        assert skipped is not None
+        assert "Duplicate hash" in skipped.message
+
+
+def test_ingestion_logs_skipped_on_quarantined_hash(app, tmp_path):
+    """A file whose hash matches a quarantined file produces status='skipped'."""
+    watch = tmp_path / "watch"
+    watch.mkdir()
+    (watch / "processed").mkdir()
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    app.config.update(WATCH_FOLDER=str(watch), QUARANTINE_FOLDER=str(quarantine))
+
+    with app.app_context():
+        db.session.add(NewsSource(name="JSON", source_type="json", is_allowed=True, created_by=1))
+        db.session.commit()
+
+        bad_content = '{"items":[{"summary":"No title"}]}'
+        f1 = watch / "bad.json"
+        f1.write_text(bad_content)
+        ingest_news()
+        assert QuarantinedFile.query.count() == 1
+
+        f2 = watch / "bad2.json"
+        f2.write_text(bad_content)
+        ingest_news()
+
+        skipped = IngestionLog.query.filter_by(filename="bad2.json", status="skipped").first()
+        assert skipped is not None
+        assert "quarantined" in skipped.message.lower()

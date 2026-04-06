@@ -24,24 +24,44 @@ def create_app(config_class=None):
         "JWT_SECRET_KEY": os.getenv("JWT_SECRET_KEY"),
         "HMAC_SECRET": os.getenv("HMAC_SECRET"),
     }
-    placeholders = {
+    disallowed_values = {
         "SECRET_KEY": "change-me-to-random-64-chars",
         "JWT_SECRET_KEY": "change-me-to-another-random-64-chars",
         "HMAC_SECRET": "change-me-hmac-secret",
     }
     default_admin = os.getenv("ADMIN_PASSWORD")
+    demo_mode = os.getenv("DEMO_MODE", "").lower() == "true"
+
     missing = [name for name, value in required_secrets.items() if not value]
     if missing:
         raise RuntimeError(
             f"Missing required secrets in environment: {', '.join(missing)}"
         )
-    weak = [name for name, value in required_secrets.items() if value == placeholders[name]]
+    weak = [name for name, value in required_secrets.items() if value == disallowed_values[name]]
     if weak:
         raise RuntimeError(
             f"Replace placeholder secrets before starting the app: {', '.join(weak)}"
         )
     if default_admin in (None, "AdminPass12345!"):
         raise RuntimeError("Set a custom ADMIN_PASSWORD before starting the app.")
+
+    if demo_mode:
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "DEMO_MODE is enabled — using demo secrets. "
+            "Do NOT use this in production. "
+            "Remove DEMO_MODE and set secure secrets before deploying."
+        )
+    else:
+        demo_prefixed = [
+            name for name, value in required_secrets.items()
+            if value and value.startswith("demo-")
+        ]
+        if demo_prefixed:
+            raise RuntimeError(
+                f"Demo secrets detected without DEMO_MODE=true: {', '.join(demo_prefixed)}. "
+                f"Set DEMO_MODE=true for evaluation, or replace with secure secrets for production."
+            )
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     db.init_app(app)

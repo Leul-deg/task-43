@@ -166,6 +166,26 @@ def test_anomaly_created_on_failed_logins(app, client):
         assert alert.severity == "high"
 
 
+def test_anomaly_mirrored_to_audit_log_on_failed_logins(app, client):
+    """When a failed-login anomaly fires, a corresponding AuditLog entry is created."""
+    with app.app_context():
+        from app.models import AnomalyAlert, AuditLog, User, db
+
+        user = User.query.filter_by(username="test_admin").first()
+        AnomalyAlert.query.filter_by(user_id=user.id).delete()
+        AuditLog.query.filter_by(user_id=user.id, action="anomaly_detected").delete()
+        db.session.commit()
+
+        for _ in range(3):
+            client.post("/auth/login", data={"username": "test_admin", "password": "wrongpass"})
+
+        audit = AuditLog.query.filter_by(
+            user_id=user.id, action="anomaly_detected"
+        ).first()
+        assert audit is not None
+        assert "multiple_failed_logins" in audit.detail
+
+
 def test_non_admin_cannot_manage_users(app, client):
     """Staff cannot access admin user management"""
     with app.app_context():
