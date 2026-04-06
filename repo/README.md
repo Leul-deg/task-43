@@ -10,19 +10,21 @@
 - Admin dashboards for anomalies, audit log, and user management
 - Server-side HMAC-SHA256 request signing via `/auth/sign` and JWT auth
 
-## Quick Start (Docker — Production)
-1. `cp .env.example .env` and replace all secrets with secure random values, remove `DEMO_MODE`
-2. `docker compose up --build`
-3. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
-
-The default `docker-compose.yml` reads from `.env` (not committed to version control). Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed secrets or known weak placeholders.
-
 ## Quick Start (Docker — Demo/Evaluation)
-1. `docker compose -f docker-compose.yml -f docker-compose.demo.yml up --build`
+1. `docker compose up --build`
 2. Open http://localhost:5000
 3. Login: `admin` / `DemoAdmin2026Secure!`
 
-The `docker-compose.demo.yml` override reads `.env.example` which ships with `DEMO_MODE=true`, allowing demo secrets for evaluation. A prominent warning is logged on startup.
+The `.env.example` ships with `DEMO_MODE=true`, which allows the app to start with demo secrets for evaluation. A prominent warning is logged on startup.
+
+## Quick Start (Docker — Production)
+1. `cp .env.example .env`
+2. Replace all secrets with secure random values and remove `DEMO_MODE` (or set to `false`)
+3. Update `docker-compose.yml` to `env_file: .env`
+4. `docker compose up --build`
+5. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
+
+Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed secrets or known weak placeholders.
 
 ## Local Development (without Docker)
 1. `python3 -m venv .venv && source .venv/bin/activate`
