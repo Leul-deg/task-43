@@ -138,6 +138,28 @@ def create_app(config_class=None):
     def seed_admin_command():
         seed_admin()
 
+    @app.cli.command("seed-demo-users")
+    def seed_demo_users_command():
+        """Create one demo account for each non-admin role (idempotent)."""
+        demo_accounts = [
+            ("demo_editor",    "content_editor",     "DemoEditor2026!"),
+            ("demo_inventory", "inventory_manager",  "DemoInventory2026!"),
+            ("demo_trainer",   "trainer",             "DemoTrainer2026!"),
+            ("demo_staff",     "staff",               "DemoStaff2026!"),
+        ]
+        created = []
+        for username, role, password in demo_accounts:
+            if not User.query.filter_by(username=username).first():
+                u = User(username=username, role=role)
+                u.set_password(password)
+                db.session.add(u)
+                created.append(username)
+        db.session.commit()
+        if created:
+            click.echo(f"Created demo users: {', '.join(created)}")
+        else:
+            click.echo("Demo users already exist — nothing to do.")
+
     @app.cli.command("cleanup-nonces")
     def cleanup_nonces_command():
         UsedNonce.cleanup_expired()

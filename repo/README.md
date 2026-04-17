@@ -1,5 +1,7 @@
 # Sports Hub
 
+**Type:** Full-stack web application (Flask + HTMX, server-rendered templates)
+
 ## Features
 - Product catalog with variants, tags, tiered pricing, and CSV import/export
 - Inventory management with warehouses, bins, batches, FEFO picking, and reservations
@@ -12,10 +14,23 @@
 
 ## Quick Start (Docker — Demo/Evaluation)
 1. `docker compose up --build`
-2. Open http://localhost:5000
-3. Login: `admin` / `DemoAdmin2026Secure!`
+2. Open http://localhost:5000 — you should see the Sports Hub login page
+3. Login: `admin` / `DemoAdmin2026Secure!` — you should land on the dashboard
+4. To create demo accounts for all roles: `docker compose exec web flask seed-demo-users`
 
 The `.env.example` ships with `DEMO_MODE=true`, which allows the app to start with demo secrets for evaluation. A prominent warning is logged on startup.
+
+### Demo Credentials (all roles)
+
+| Role | Username | Password |
+|---|---|---|
+| `admin` | `admin` | `DemoAdmin2026Secure!` |
+| `content_editor` | `demo_editor` | `DemoEditor2026!` |
+| `inventory_manager` | `demo_inventory` | `DemoInventory2026!` |
+| `trainer` | `demo_trainer` | `DemoTrainer2026!` |
+| `staff` | `demo_staff` | `DemoStaff2026!` |
+
+`seed-demo-users` is idempotent — safe to run multiple times.
 
 ## Quick Start (Docker — Production)
 1. `cp .env.example .env`
@@ -27,15 +42,19 @@ The `.env.example` ships with `DEMO_MODE=true`, which allows the app to start wi
 Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed secrets or known weak placeholders.
 
 ## Local Development (without Docker)
+
+> **Note:** This path is for contributors only. For evaluation or demos, use the Docker path above.
+
 1. `python3 -m venv .venv && source .venv/bin/activate`
 2. `pip install -r requirements.txt`
-3. `cp .env.example .env.local` and edit the values (replace demo secrets with secure random strings)
+3. `cp .env.example .env.local` and edit the values (replace demo secrets with secure random strings — use `openssl rand -hex 32` for each secret)
 4. `export $(cat .env.local | xargs) && export FLASK_APP=app:create_app`
 5. `flask db-init && flask run`
 6. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
 
 ## Commands
-- Run tests: `./run_tests.sh`
+- Run tests: `./run_tests.sh` (outputs pytest summary; all tests should report PASSED)
+- Seed demo users: `flask seed-demo-users`
 - Ingest news: `flask ingest-news`
 - Cleanup nonces: `flask cleanup-nonces`
 - Rotate HMAC keys: `flask rotate-hmac-keys` (users must re-login after rotation)
@@ -61,6 +80,7 @@ Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed s
 ## Known Limitations
 - **SQLite Concurrency**: SQLite does not support row-level locking. The reservation system uses `begin_nested()` (savepoints) with optimistic locking (`version_id_col`) and `busy_timeout=5000` to handle concurrent writes gracefully. For high-traffic production, consider PostgreSQL.
 - **Scheduler Duplication**: Running Gunicorn with multiple workers may duplicate APScheduler jobs. Use `--workers 1` or switch to an external scheduler (e.g., cron) for multi-worker deployments.
+- **Browser Crypto Requirement for Secure File Uploads**: Multipart HMAC signing uses `window.crypto.subtle` to hash file bytes before submit. Browsers without WebCrypto support cannot complete signed file-upload forms and will receive an in-UI warning.
 
 ## Security Maintenance
 - Rotate HMAC keys periodically: `flask rotate-hmac-keys` (users must re-login after rotation)

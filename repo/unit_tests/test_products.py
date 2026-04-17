@@ -83,8 +83,14 @@ def test_csv_import_export(client, app):
 
     content = "name,sku,description,category,tags,base_price,stock_total,purchase_limit\n"
     content += "Imported,IMP-1,Desc,Category A,tag1,12.5,0,\n"
-    data = {"file": (io.BytesIO(content.encode("utf-8")), "products.csv")}
-    headers = hmac_headers(user, "POST", "/products/import")
+    content_bytes = content.encode("utf-8")
+    data = {"file": (io.BytesIO(content_bytes), "products.csv")}
+    headers = hmac_headers(
+        user,
+        "POST",
+        "/products/import",
+        file_meta=[("file", "products.csv", content_bytes)],
+    )
     response = client.post("/products/import", data=data, headers=headers)
     assert response.status_code == 302
 

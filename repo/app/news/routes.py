@@ -1,6 +1,5 @@
 import os
 import shutil
-from datetime import datetime
 
 import bleach
 from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
@@ -9,7 +8,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from ..decorators import hmac_required, role_required
 from ..extensions import db
 from ..models import IngestionLog, NewsItem, NewsSource, QuarantinedFile
-from ..utils import safe_int
+from ..utils import parse_date, safe_int
 
 news_bp = Blueprint("news", __name__)
 
@@ -29,13 +28,15 @@ def index():
     if source_id:
         query = query.filter(NewsItem.source_id == safe_int(source_id))
     if date_from:
-        query = query.filter(
-            NewsItem.ingested_at >= datetime.strptime(date_from, "%Y-%m-%d")
-        )
+        parsed_from = parse_date(date_from)
+        if not parsed_from:
+            return abort(400)
+        query = query.filter(NewsItem.ingested_at >= parsed_from)
     if date_to:
-        query = query.filter(
-            NewsItem.ingested_at <= datetime.strptime(date_to, "%Y-%m-%d")
-        )
+        parsed_to = parse_date(date_to)
+        if not parsed_to:
+            return abort(400)
+        query = query.filter(NewsItem.ingested_at <= parsed_to)
 
     pagination = query.order_by(NewsItem.ingested_at.desc()).paginate(
         page=page, per_page=25, error_out=False

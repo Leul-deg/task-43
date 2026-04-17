@@ -327,3 +327,115 @@ def test_concurrent_reservations_true_parallel(tmp_path):
     with test_app.app_context():
         held = Reservation.query.filter_by(variant_id=vid, status="held").count()
         assert held <= 1
+
+
+def test_concurrent_confirm_same_reservation_true_parallel(tmp_path):
+    """Two admins confirm the same reservation at the same time.
+
+    Exactly one confirmation should succeed; the other must conflict.
+    """
+    import hashlib as _hl
+    import hmac as _hm
+    import os
+    import threading
+    import uuid as _uu
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import timezone
+
+    from app import create_app
+    from app.config import TestConfig
+    from app.extensions import db as _db
+    from app.models import Batch, Bin, Product, ProductVariant, Reservation, User, Warehouse
+
+    db_file = tmp_path / "confirm_conc.db"
+
+    class ConcConfig(TestConfig):
+        SQLALCHEMY_DATABASE_URI = f"sqlite:///{db_file}"
+
+    os.environ.setdefault("SECRET_KEY", "test-secret-key-for-testing")
+    os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-for-testing")
+    os.environ.setdefault("HMAC_SECRET", "test-hmac-secret")
+    os.environ.setdefault("ADMIN_PASSWORD", "SecureTestPass123!")
+
+    test_app = create_app(config_class=ConcConfig)
+
+    with test_app.app_context():
+        _db.create_all()
+        admin = User(username="cc_admin", role="admin")
+        admin.set_password("TestPassword123!")
+        staff = User(username="cc_staff", role="staff")
+        staff.set_password("TestPassword123!")
+        _db.session.add_all([admin, staff])
+        _db.session.flush()
+
+        wh = Warehouse(name="CCW")
+        _db.session.add(wh)
+        _db.session.flush()
+        bn = Bin(warehouse_id=wh.id, label="CCB1")
+        _db.session.add(bn)
+        _db.session.flush()
+        prod = Product(name="ConfirmConcProd", slug="confirm-conc-prod")
+        _db.session.add(prod)
+        _db.session.flush()
+        var = ProductVariant(product_id=prod.id, sku="CCONF-1", base_price=10.0)
+        _db.session.add(var)
+        _db.session.flush()
+        _db.session.add(Batch(variant_id=var.id, bin_id=bn.id, quantity=5))
+
+        reservation = Reservation(
+            variant_id=var.id,
+            user_id=staff.id,
+            quantity=5,
+            booking_datetime=datetime.utcnow() + timedelta(days=1),
+            status="held",
+            expires_at=datetime.utcnow() + timedelta(minutes=20),
+            unit_price=10.0,
+            total_price=50.0,
+        )
+        _db.session.add(reservation)
+        _db.session.commit()
+
+        admin_hmac_key = admin.get_hmac_key()
+        reservation_id = reservation.id
+        variant_id = var.id
+
+    barrier = threading.Barrier(2, timeout=10)
+    results = {}
+
+    def _sign(key, method, path, body_string=""):
+        body_hash = _hl.sha256(body_string.encode()).hexdigest()
+        ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        nonce = str(_uu.uuid4())
+        sig = _hm.new(
+            key.encode(), f"{method}{path}{ts}{body_hash}{nonce}".encode(), _hl.sha256
+        ).hexdigest()
+        return {"X-Signature": sig, "X-Timestamp": ts, "X-Nonce": nonce}
+
+    def confirm(tid):
+        c = test_app.test_client()
+        c.post(
+            "/auth/login",
+            data={"username": "cc_admin", "password": "TestPassword123!"},
+        )
+        path = f"/inventory/reservations/{reservation_id}/confirm"
+        hdrs = _sign(admin_hmac_key, "POST", path)
+        barrier.wait()
+        resp = c.post(path, headers=hdrs)
+        results[tid] = resp.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futs = [pool.submit(confirm, i) for i in range(2)]
+        for f in as_completed(futs):
+            f.result()
+
+    codes = list(results.values())
+    assert codes.count(200) == 1, f"Expected exactly one successful confirmation: {codes}"
+    assert codes.count(409) == 1, f"Expected exactly one conflict response: {codes}"
+
+    with test_app.app_context():
+        res = Reservation.query.get(reservation_id)
+        assert res.status == "confirmed"
+        total_qty = _db.session.query(_db.func.coalesce(_db.func.sum(Batch.quantity), 0)).filter(
+            Batch.variant_id == variant_id
+        ).scalar()
+        assert total_qty == 0

@@ -374,36 +374,61 @@ def create_reservation():
 @role_required("admin", "inventory_manager")
 @hmac_required
 def confirm_reservation(reservation_id):
-    reservation = Reservation.query.get_or_404(reservation_id)
-    if reservation.status != "held":
+    try:
+        with db.session.begin_nested():
+            reservation = Reservation.query.get_or_404(reservation_id)
+            now = utcnow()
+            if reservation.status != "held":
+                return "Reservation is not in held status.", 409
+            if reservation.expires_at <= now:
+                return "Reservation hold has expired.", 409
+
+            total_available = (
+                db.session.query(db.func.coalesce(db.func.sum(Batch.quantity), 0))
+                .filter(Batch.variant_id == reservation.variant_id)
+                .scalar()
+            )
+            if total_available < reservation.quantity:
+                return "Insufficient stock to confirm reservation.", 409
+
+            variant = ProductVariant.query.get(reservation.variant_id)
+            if not variant:
+                return "Variant not found.", 404
+            variant.version += 1
+            db.session.add(variant)
+
+            remaining = reservation.quantity
+            batches = (
+                Batch.query.filter_by(variant_id=reservation.variant_id)
+                .order_by(Batch.expiration_date.asc())
+                .all()
+            )
+            for batch in batches:
+                if remaining <= 0:
+                    break
+                deduction = min(batch.quantity, remaining)
+                batch.quantity -= deduction
+                remaining -= deduction
+
+            if remaining > 0:
+                return "Insufficient stock to fully confirm reservation.", 409
+
+            reservation.status = "confirmed"
+            reservation.confirmed_at = now
+
+            db.session.add(
+                AuditLog(
+                    user_id=get_jwt_identity(),
+                    action="reservation_confirmed",
+                    detail=f"Reservation ID: {reservation_id}",
+                    ip_address=AuditLog.hash_ip(request.remote_addr),
+                )
+            )
+        db.session.commit()
         return "", 200
-
-    reservation.status = "confirmed"
-    reservation.confirmed_at = utcnow()
-
-    remaining = reservation.quantity
-    batches = (
-        Batch.query.filter_by(variant_id=reservation.variant_id)
-        .order_by(Batch.expiration_date.asc())
-        .all()
-    )
-    for batch in batches:
-        if remaining <= 0:
-            break
-        deduction = min(batch.quantity, remaining)
-        batch.quantity -= deduction
-        remaining -= deduction
-
-    db.session.add(
-        AuditLog(
-            user_id=get_jwt_identity(),
-            action="reservation_confirmed",
-            detail=f"Reservation ID: {reservation_id}",
-            ip_address=AuditLog.hash_ip(request.remote_addr),
-        )
-    )
-    db.session.commit()
-    return "", 200
+    except (StaleDataError, OperationalError):
+        db.session.rollback()
+        return "Reservation confirmation conflict. Please retry.", 409
 
 
 @inventory_bp.route("/reservations/<int:reservation_id>/release", methods=["POST"])

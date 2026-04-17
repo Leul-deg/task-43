@@ -1,13 +1,13 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, abort, render_template, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from markupsafe import Markup, escape
 
 from ..decorators import hmac_required, role_required
 from ..extensions import db
-from sqlalchemy import or_
+from sqlalchemy import func, literal, or_, select
 
 from ..models import (
     AnomalyAlert,
@@ -21,7 +21,7 @@ from ..models import (
     Tag,
     utcnow,
 )
-from ..utils import safe_int, safe_float
+from ..utils import parse_date, safe_float, safe_int
 
 search_bp = Blueprint("search", __name__)
 
@@ -64,6 +64,12 @@ def index():
     sort = request.args.get("sort", "recency")
     page = safe_int(request.args.get("page", 1))
     per_page = 25
+    parsed_date_from = parse_date(date_from) if date_from else None
+    parsed_date_to = parse_date(date_to) if date_to else None
+    if date_from and not parsed_date_from:
+        return abort(400)
+    if date_to and not parsed_date_to:
+        return abort(400)
 
     now = utcnow()
     total = 0
@@ -108,13 +114,9 @@ def index():
                     )
                 )
         if date_from:
-            nq = nq.filter(
-                NewsItem.ingested_at >= datetime.strptime(date_from, "%Y-%m-%d")
-            )
+            nq = nq.filter(NewsItem.ingested_at >= parsed_date_from)
         if date_to:
-            nq = nq.filter(
-                NewsItem.ingested_at <= datetime.strptime(date_to, "%Y-%m-%d")
-            )
+            nq = nq.filter(NewsItem.ingested_at <= parsed_date_to)
         return nq
 
     def _build_question_query():
@@ -166,52 +168,100 @@ def index():
                     "price": None, "date": now,
                 })
     else:
-        product_count = _build_product_query().count() if search_type == "all" else 0
-        news_count = _build_news_query().count() if search_type == "all" else 0
-        question_count = _build_question_query().count() if search_type == "all" else 0
-        total = product_count + news_count + question_count
+        product_stmt = select(
+            literal("product").label("type"),
+            Product.name.label("title"),
+            func.coalesce(Product.description, "").label("snippet_text"),
+            func.printf("/products/%d", Product.id).label("link"),
+            ProductVariant.base_price.label("price"),
+            Product.created_at.label("date"),
+        ).select_from(ProductVariant).join(Product).where(Product.is_published.is_(True))
 
-        per_type = max(per_page // 3, 1)
-        remainder = per_page - per_type * 3
-        offset_base = (page - 1) * per_type
+        if q:
+            for term in q.split():
+                like = f"%{term}%"
+                fuzzy = "%" + "%".join(list(term)) + "%"
+                product_stmt = product_stmt.where(
+                    or_(
+                        Product.name.ilike(like),
+                        ProductVariant.sku.ilike(like),
+                        Product.description.ilike(like),
+                        Product.name.ilike(fuzzy),
+                    )
+                )
+        if category_id:
+            product_stmt = product_stmt.where(ProductVariant.category_id == safe_int(category_id))
+        if tag_id:
+            product_stmt = product_stmt.join(Product.tags).where(Tag.id == safe_int(tag_id))
+        if min_price:
+            product_stmt = product_stmt.where(ProductVariant.base_price >= safe_float(min_price))
+        if max_price:
+            product_stmt = product_stmt.where(ProductVariant.base_price <= safe_float(max_price))
 
-        pq = _build_product_query()
+        news_stmt = select(
+            literal("news").label("type"),
+            NewsItem.title.label("title"),
+            func.coalesce(NewsItem.summary, NewsItem.content, "").label("snippet_text"),
+            func.printf("/news/%d", NewsItem.id).label("link"),
+            literal(None).label("price"),
+            func.coalesce(NewsItem.published_date, NewsItem.ingested_at).label("date"),
+        )
+
+        if q:
+            for term in q.split():
+                like = f"%{term}%"
+                fuzzy = "%" + "%".join(list(term)) + "%"
+                news_stmt = news_stmt.where(
+                    or_(
+                        NewsItem.title.ilike(like),
+                        NewsItem.content.ilike(like),
+                        NewsItem.summary.ilike(like),
+                        NewsItem.title.ilike(fuzzy),
+                    )
+                )
+        if parsed_date_from:
+            news_stmt = news_stmt.where(NewsItem.ingested_at >= parsed_date_from)
+        if parsed_date_to:
+            news_stmt = news_stmt.where(NewsItem.ingested_at <= parsed_date_to)
+
+        question_stmt = select(
+            literal("question").label("type"),
+            func.substr(Question.question_text, 1, 80).label("title"),
+            Question.question_text.label("snippet_text"),
+            func.printf("/assessments/%d", Question.assessment_id).label("link"),
+            literal(None).label("price"),
+            literal(now).label("date"),
+        )
+
+        if q:
+            for term in q.split():
+                like = f"%{term}%"
+                fuzzy = "%" + "%".join(list(term)) + "%"
+                question_stmt = question_stmt.where(
+                    or_(Question.question_text.ilike(like), Question.question_text.ilike(fuzzy))
+                )
+
+        combined = product_stmt.union_all(news_stmt, question_stmt).subquery()
+
+        total = db.session.query(func.count()).select_from(combined).scalar() or 0
+        query_all = db.session.query(combined)
         if sort == "price":
-            pq = pq.order_by(ProductVariant.base_price.asc())
+            query_all = query_all.order_by(combined.c.price.is_(None), combined.c.price.asc())
         else:
-            pq = pq.order_by(Product.created_at.desc())
-        for variant in pq.offset(offset_base).limit(per_type + (1 if remainder > 0 else 0)).all():
-            paginated.append({
-                "type": "product", "title": variant.product.name,
-                "snippet": highlight(variant.product.description or "", q),
-                "link": f"/products/{variant.product.id}",
-                "price": variant.base_price,
-                "date": variant.product.created_at or now,
-            })
+            query_all = query_all.order_by(combined.c.date.desc())
 
-        nq = _build_news_query().order_by(NewsItem.ingested_at.desc())
-        for item in nq.offset(offset_base).limit(per_type + (1 if remainder > 1 else 0)).all():
-            paginated.append({
-                "type": "news", "title": item.title,
-                "snippet": highlight(item.summary or item.content or "", q),
-                "link": f"/news/{item.id}",
-                "price": None,
-                "date": item.published_date or item.ingested_at or now,
-            })
-
-        qq = _build_question_query()
-        for question in qq.offset(offset_base).limit(per_type + (1 if remainder > 2 else 0)).all():
-            paginated.append({
-                "type": "question", "title": question.question_text[:80],
-                "snippet": highlight(question.question_text, q),
-                "link": f"/assessments/{question.assessment_id}",
-                "price": None, "date": now,
-            })
-
-        if sort == "price":
-            paginated.sort(key=lambda r: (r["price"] is None, r["price"] or 0))
-        else:
-            paginated.sort(key=lambda r: r["date"], reverse=True)
+        rows = query_all.offset((page - 1) * per_page).limit(per_page).all()
+        paginated = [
+            {
+                "type": row.type,
+                "title": row.title,
+                "snippet": highlight(row.snippet_text or "", q),
+                "link": row.link,
+                "price": row.price,
+                "date": row.date or now,
+            }
+            for row in rows
+        ]
 
     total_pages = max((total + per_page - 1) // per_page, 1)
 
@@ -244,40 +294,40 @@ def index():
         "tags": Tag.query.order_by(Tag.name.asc()).all(),
     }
 
-    if request.headers.get("HX-Request") != "true":
+    is_htmx = request.headers.get("HX-Request") == "true"
+    db.session.add(
+        AuditLog(
+            user_id=get_jwt_identity(),
+            action="search",
+            detail=f"Query: {q} (htmx={is_htmx})",
+            ip_address=AuditLog.hash_ip(request.remote_addr),
+        )
+    )
+    db.session.commit()
+
+    one_minute_ago = utcnow() - timedelta(minutes=1)
+    recent_searches = AuditLog.query.filter(
+        AuditLog.user_id == get_jwt_identity(),
+        AuditLog.action == "search",
+        AuditLog.created_at >= one_minute_ago,
+    ).count()
+    if recent_searches >= 20:
+        db.session.add(
+            AnomalyAlert(
+                user_id=get_jwt_identity(),
+                rule_triggered="rapid_search_burst",
+                detail="20+ searches within 1 minute",
+                severity="medium",
+            )
+        )
         db.session.add(
             AuditLog(
                 user_id=get_jwt_identity(),
-                action="search",
-                detail=f"Query: {q}",
-                ip_address=AuditLog.hash_ip(request.remote_addr),
+                action="anomaly_detected",
+                detail="Rule: rapid_search_burst — 20+ searches within 1 minute",
             )
         )
         db.session.commit()
-
-        one_minute_ago = utcnow() - timedelta(minutes=1)
-        recent_searches = AuditLog.query.filter(
-            AuditLog.user_id == get_jwt_identity(),
-            AuditLog.action == "search",
-            AuditLog.created_at >= one_minute_ago,
-        ).count()
-        if recent_searches >= 20:
-            db.session.add(
-                AnomalyAlert(
-                    user_id=get_jwt_identity(),
-                    rule_triggered="rapid_search_burst",
-                    detail="20+ searches within 1 minute",
-                    severity="medium",
-                )
-            )
-            db.session.add(
-                AuditLog(
-                    user_id=get_jwt_identity(),
-                    action="anomaly_detected",
-                    detail="Rule: rapid_search_burst — 20+ searches within 1 minute",
-                )
-            )
-            db.session.commit()
 
     if request.headers.get("HX-Request") == "true":
         return render_template("search/partials/results.html", **context)
@@ -353,4 +403,8 @@ def toggle_pin(saved_id):
         return "", 403
     saved.is_pinned = not saved.is_pinned
     db.session.commit()
-    return render_template("search/partials/saved_button.html", saved=saved)
+    try:
+        params = json.loads(saved.query_params)
+    except Exception:
+        params = {}
+    return render_template("search/partials/saved_button.html", saved=saved, params=params)

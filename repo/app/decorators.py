@@ -63,12 +63,33 @@ def hmac_required(fn):
             return "", 401
 
         if request.mimetype in {"multipart/form-data", "application/x-www-form-urlencoded"}:
-            form_items = []
-            for key in sorted(request.form.keys()):
-                values = request.form.getlist(key)
-                for value in values:
-                    form_items.append((key, value))
-            body_string = urlencode(form_items, doseq=True)
+            items = []
+            for key in request.form.keys():
+                for value in request.form.getlist(key):
+                    items.append((key, value))
+
+            for key in request.files.keys():
+                for storage in request.files.getlist(key):
+                    stream = storage.stream
+                    try:
+                        current_pos = stream.tell()
+                    except Exception:
+                        current_pos = None
+                    try:
+                        stream.seek(0)
+                    except Exception:
+                        pass
+                    file_bytes = storage.read() or b""
+                    try:
+                        stream.seek(current_pos if current_pos is not None else 0)
+                    except Exception:
+                        pass
+                    file_hash = hashlib.sha256(file_bytes).hexdigest()
+                    items.append((f"{key}__filename", storage.filename or ""))
+                    items.append((f"{key}__filehash", file_hash))
+
+            items.sort(key=lambda x: (x[0], str(x[1])))
+            body_string = urlencode(items, doseq=True)
             body_hash = hashlib.sha256(body_string.encode("utf-8")).hexdigest()
         else:
             body = request.get_data(cache=True) or b""

@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
+import io
 
 import pytest
 
@@ -194,6 +195,28 @@ def test_non_admin_cannot_manage_users(app, client):
         login_as(client, "staff")
         resp = client.get("/admin/users")
         assert resp.status_code == 403
+
+
+def test_multipart_hmac_rejects_file_tampering(client, app):
+    login_as(client, "admin")
+    with app.app_context():
+        user = User.query.filter_by(username="test_admin").first()
+
+    signed_bytes = b"name,sku\nSigned,SIG-1\n"
+    tampered_bytes = b"name,sku\nTampered,TMP-1\n"
+    headers = hmac_headers(
+        user,
+        "POST",
+        "/products/import",
+        file_meta=[("file", "products.csv", signed_bytes)],
+    )
+    resp = client.post(
+        "/products/import",
+        data={"file": (io.BytesIO(tampered_bytes), "products.csv")},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 401
 
 
 class TestCSRFEnforcement:

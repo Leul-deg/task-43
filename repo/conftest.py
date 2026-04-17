@@ -61,7 +61,7 @@ def login_as(client, role):
     return response
 
 
-def _body_string(data):
+def _body_string(data, file_meta=None):
     items = []
     for key in sorted(data.keys()):
         value = data[key]
@@ -70,12 +70,19 @@ def _body_string(data):
                 items.append((key, val))
         else:
             items.append((key, value))
+
+    for key, filename, raw_bytes in sorted(file_meta or [], key=lambda x: (x[0], x[1])):
+        digest = hashlib.sha256(raw_bytes or b"").hexdigest()
+        items.append((f"{key}__filename", filename or ""))
+        items.append((f"{key}__filehash", digest))
+
+    items.sort(key=lambda x: (x[0], str(x[1])))
     return urlencode(items, doseq=True)
 
 
-def hmac_headers(user, method, path, data=None):
+def hmac_headers(user, method, path, data=None, file_meta=None):
     data = data or {}
-    body_string = _body_string(data)
+    body_string = _body_string(data, file_meta=file_meta)
     body_hash = hashlib.sha256(body_string.encode("utf-8")).hexdigest()
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     nonce = str(uuid.uuid4())

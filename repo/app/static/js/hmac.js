@@ -16,14 +16,28 @@
     return search.toString();
   }
 
-  function buildBodyStringFromForm(form) {
+  async function sha256HexFromBlob(blob) {
+    if (!window.crypto || !window.crypto.subtle) {
+      throw new Error('WebCryptoUnavailable');
+    }
+    const buffer = await blob.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buffer);
+    const bytes = new Uint8Array(digest);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async function buildBodyStringFromForm(form) {
     const formData = new FormData(form);
     const entries = [];
     for (const [key, value] of formData.entries()) {
       if (value instanceof File) {
-        continue;
+        entries.push([`${key}__filename`, value.name || '']);
+        entries.push([`${key}__filehash`, await sha256HexFromBlob(value)]);
+      } else {
+        entries.push([key, value]);
       }
-      entries.push([key, value]);
     }
     entries.sort((a, b) =>
       a[0] === b[0]
@@ -121,7 +135,16 @@
     }
     event.preventDefault();
     const action = form.getAttribute('action') || window.location.pathname;
-    const bodyString = buildBodyStringFromForm(form);
+    let bodyString;
+    try {
+      bodyString = await buildBodyStringFromForm(form);
+    } catch (err) {
+      if (err && err.message === 'WebCryptoUnavailable') {
+        alert('Your browser does not support required crypto features for secure file uploads.');
+        return;
+      }
+      throw err;
+    }
     const result = await signRequest(method, action, bodyString);
     if (!result) {
       form.submit();

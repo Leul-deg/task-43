@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from app.extensions import db
 from app.models import Batch, Bin, Product, ProductVariant, PriceRule, Reservation, Warehouse, User
@@ -350,3 +350,293 @@ def test_quoted_price_no_rule_matches_base_reservation(app, client):
         assert reservation.unit_price == 50.0
         assert reservation.total_price == 150.0
         assert reservation.booking_datetime is not None
+
+
+# ---------------------------------------------------------------------------
+# Inventory infrastructure CRUD
+# ---------------------------------------------------------------------------
+
+def test_create_warehouse(client, app):
+    login_as(client, "inventory_manager")
+    with app.app_context():
+        mgr = User.query.filter_by(username="test_inventory").first()
+
+    data = {"name": "New Warehouse", "location": "Building A"}
+    headers = hmac_headers(mgr, "POST", "/inventory/warehouses", data)
+    resp = client.post("/inventory/warehouses", data=data, headers=headers,
+                       follow_redirects=False)
+    assert resp.status_code == 302
+
+    with app.app_context():
+        wh = Warehouse.query.filter_by(name="New Warehouse").first()
+        assert wh is not None
+        assert wh.location == "Building A"
+
+
+def test_staff_cannot_create_warehouse(client, app):
+    login_as(client, "staff")
+    with app.app_context():
+        staff = User.query.filter_by(username="test_staff").first()
+
+    data = {"name": "Intruder WH"}
+    headers = hmac_headers(staff, "POST", "/inventory/warehouses", data)
+    resp = client.post("/inventory/warehouses", data=data, headers=headers)
+    assert resp.status_code == 403
+
+
+def test_create_bin(client, app):
+    with app.app_context():
+        wh = Warehouse(name="Bin Test WH")
+        db.session.add(wh)
+        db.session.commit()
+        wh_id = wh.id
+
+    login_as(client, "inventory_manager")
+    with app.app_context():
+        mgr = User.query.filter_by(username="test_inventory").first()
+
+    data = {"label": "Shelf-A1"}
+    headers = hmac_headers(mgr, "POST", f"/inventory/warehouses/{wh_id}/bins", data)
+    resp = client.post(f"/inventory/warehouses/{wh_id}/bins", data=data,
+                       headers=headers, follow_redirects=False)
+    assert resp.status_code == 302
+
+    with app.app_context():
+        bin_item = Bin.query.filter_by(label="Shelf-A1", warehouse_id=wh_id).first()
+        assert bin_item is not None
+
+
+def test_create_batch(client, app):
+    with app.app_context():
+        wh = Warehouse(name="Batch WH")
+        db.session.add(wh)
+        db.session.flush()
+        bin_item = Bin(warehouse_id=wh.id, label="B1")
+        db.session.add(bin_item)
+        product = Product(name="Batch Product", slug="batch-product")
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(product_id=product.id, sku="BATCH-SKU-1", base_price=5.0)
+        db.session.add(variant)
+        db.session.commit()
+        bin_id = bin_item.id
+        variant_id = variant.id
+
+    login_as(client, "inventory_manager")
+    with app.app_context():
+        mgr = User.query.filter_by(username="test_inventory").first()
+
+    exp_date = (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+    data = {
+        "variant_id": str(variant_id),
+        "bin_id": str(bin_id),
+        "quantity": "50",
+        "expiration_date": exp_date,
+    }
+    headers = hmac_headers(mgr, "POST", "/inventory/batches", data)
+    resp = client.post("/inventory/batches", data=data, headers=headers,
+                       follow_redirects=False)
+    assert resp.status_code == 302
+
+    with app.app_context():
+        batch = Batch.query.filter_by(variant_id=variant_id).first()
+        assert batch is not None
+        assert batch.quantity == 50
+        assert batch.bin_id == bin_id
+
+
+def test_confirm_reservation_deducts_fefo_stock(client, app):
+    """Confirming a held reservation deducts stock from earliest-expiring batch first (FEFO)."""
+    with app.app_context():
+        wh = Warehouse(name="Confirm WH")
+        db.session.add(wh)
+        db.session.flush()
+        bin_item = Bin(warehouse_id=wh.id, label="CB1")
+        db.session.add(bin_item)
+        product = Product(name="Confirm Product", slug="confirm-product")
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(product_id=product.id, sku="CONF-SKU-1", base_price=10.0)
+        db.session.add(variant)
+        db.session.flush()
+
+        # Two batches: earlier expiry first (FEFO should deduct from this one first)
+        batch_early = Batch(
+            variant_id=variant.id, bin_id=bin_item.id, quantity=2,
+            expiration_date=date.today() + timedelta(days=7),
+        )
+        batch_late = Batch(
+            variant_id=variant.id, bin_id=bin_item.id, quantity=10,
+            expiration_date=date.today() + timedelta(days=60),
+        )
+        db.session.add_all([batch_early, batch_late])
+
+        mgr = User.query.filter_by(username="test_inventory").first()
+        reservation = Reservation(
+            variant_id=variant.id,
+            user_id=mgr.id,
+            quantity=3,
+            booking_datetime=datetime.utcnow() + timedelta(days=5),
+            status="held",
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+            unit_price=10.0,
+            total_price=30.0,
+        )
+        db.session.add(reservation)
+        db.session.commit()
+        reservation_id = reservation.id
+        early_id = batch_early.id
+        late_id = batch_late.id
+
+    login_as(client, "inventory_manager")
+    with app.app_context():
+        mgr = User.query.filter_by(username="test_inventory").first()
+
+    headers = hmac_headers(mgr, "POST", f"/inventory/reservations/{reservation_id}/confirm")
+    resp = client.post(f"/inventory/reservations/{reservation_id}/confirm", headers=headers)
+    assert resp.status_code == 200
+
+    with app.app_context():
+        res = Reservation.query.get(reservation_id)
+        assert res.status == "confirmed"
+        assert res.confirmed_at is not None
+
+        # FEFO: earliest batch fully depleted first, remainder from late batch
+        early = Batch.query.get(early_id)
+        late = Batch.query.get(late_id)
+        assert early.quantity == 0   # 2 deducted from early (quantity was 2)
+        assert late.quantity == 9    # 1 deducted from late (10 - 1 = 9)
+
+
+def test_confirm_reservation_admin_only(client, app):
+    """Staff cannot confirm a reservation — role guard enforced."""
+    with app.app_context():
+        wh = Warehouse(name="Guard Confirm WH")
+        db.session.add(wh)
+        db.session.flush()
+        bin_item = Bin(warehouse_id=wh.id, label="GCB1")
+        db.session.add(bin_item)
+        product = Product(name="Guard Confirm P", slug="guard-confirm-p")
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(product_id=product.id, sku="GC-SKU-1", base_price=10.0)
+        db.session.add(variant)
+        db.session.flush()
+        db.session.add(Batch(variant_id=variant.id, bin_id=bin_item.id, quantity=5))
+        staff = User.query.filter_by(username="test_staff").first()
+        reservation = Reservation(
+            variant_id=variant.id, user_id=staff.id, quantity=1,
+            booking_datetime=datetime.utcnow() + timedelta(days=5),
+            status="held",
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+            unit_price=10.0, total_price=10.0,
+        )
+        db.session.add(reservation)
+        db.session.commit()
+        reservation_id = reservation.id
+
+    login_as(client, "staff")
+    with app.app_context():
+        staff = User.query.filter_by(username="test_staff").first()
+
+    headers = hmac_headers(staff, "POST", f"/inventory/reservations/{reservation_id}/confirm")
+    resp = client.post(f"/inventory/reservations/{reservation_id}/confirm", headers=headers)
+    assert resp.status_code == 403
+
+
+def test_confirm_reservation_rejects_expired_hold(client, app):
+    with app.app_context():
+        wh = Warehouse(name="Expired Confirm WH")
+        db.session.add(wh)
+        db.session.flush()
+        bin_item = Bin(warehouse_id=wh.id, label="ECB1")
+        db.session.add(bin_item)
+        product = Product(name="Expired Confirm Product", slug="expired-confirm-product")
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(product_id=product.id, sku="EXP-CONF-1", base_price=10.0)
+        db.session.add(variant)
+        db.session.flush()
+        db.session.add(Batch(variant_id=variant.id, bin_id=bin_item.id, quantity=10))
+        mgr = User.query.filter_by(username="test_inventory").first()
+        reservation = Reservation(
+            variant_id=variant.id,
+            user_id=mgr.id,
+            quantity=1,
+            booking_datetime=datetime.utcnow() + timedelta(days=2),
+            status="held",
+            expires_at=datetime.utcnow() - timedelta(minutes=1),
+            unit_price=10.0,
+            total_price=10.0,
+        )
+        db.session.add(reservation)
+        db.session.commit()
+        reservation_id = reservation.id
+
+    login_as(client, "inventory_manager")
+    with app.app_context():
+        mgr = User.query.filter_by(username="test_inventory").first()
+    headers = hmac_headers(mgr, "POST", f"/inventory/reservations/{reservation_id}/confirm")
+    resp = client.post(f"/inventory/reservations/{reservation_id}/confirm", headers=headers)
+    assert resp.status_code == 409
+
+
+def test_confirm_reservation_rejects_partial_fulfillment(client, app):
+    with app.app_context():
+        wh = Warehouse(name="Partial Confirm WH")
+        db.session.add(wh)
+        db.session.flush()
+        bin_item = Bin(warehouse_id=wh.id, label="PCB1")
+        db.session.add(bin_item)
+        product = Product(name="Partial Confirm Product", slug="partial-confirm-product")
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(product_id=product.id, sku="PART-CONF-1", base_price=10.0)
+        db.session.add(variant)
+        db.session.flush()
+        db.session.add(Batch(variant_id=variant.id, bin_id=bin_item.id, quantity=2))
+        mgr = User.query.filter_by(username="test_inventory").first()
+        reservation = Reservation(
+            variant_id=variant.id,
+            user_id=mgr.id,
+            quantity=3,
+            booking_datetime=datetime.utcnow() + timedelta(days=2),
+            status="held",
+            expires_at=datetime.utcnow() + timedelta(minutes=10),
+            unit_price=10.0,
+            total_price=30.0,
+        )
+        db.session.add(reservation)
+        db.session.commit()
+        reservation_id = reservation.id
+
+    login_as(client, "inventory_manager")
+    with app.app_context():
+        mgr = User.query.filter_by(username="test_inventory").first()
+    headers = hmac_headers(mgr, "POST", f"/inventory/reservations/{reservation_id}/confirm")
+    resp = client.post(f"/inventory/reservations/{reservation_id}/confirm", headers=headers)
+    assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Inventory read views
+# ---------------------------------------------------------------------------
+
+def test_get_inventory_index(client):
+    login_as(client, "inventory_manager")
+    assert client.get("/inventory/").status_code == 200
+
+
+def test_get_warehouses(client):
+    login_as(client, "inventory_manager")
+    assert client.get("/inventory/warehouses").status_code == 200
+
+
+def test_get_batches(client):
+    login_as(client, "inventory_manager")
+    assert client.get("/inventory/batches").status_code == 200
+
+
+def test_get_reservations_list(client):
+    login_as(client, "inventory_manager")
+    assert client.get("/inventory/reservations").status_code == 200
