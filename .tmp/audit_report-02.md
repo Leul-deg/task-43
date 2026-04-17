@@ -1,6 +1,6 @@
 # Sports Hub — Delivery & architecture audit (audit-2)
 
-**Date:** 2026-04-18
+**Date:** 2026-04-17
 **Workspace:** `/home/leul/Downloads/task-43` (application under `repo/`)
 **Business target (summary):** On-prem sports retail catalog, perishable inventory, local news ingestion, employee assessments, Flask + SQLite + HTMX; roles include admin, content editor, inventory manager, trainer, staff; JWT sessions, HMAC on mutations, CSRF, rate limits, audit/anomaly logging.
 

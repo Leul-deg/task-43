@@ -1,6 +1,6 @@
 # Audit Report 01 — Fix Check
 
-**Date:** 2026-04-18
+**Date:** 2026-04-17
 **Scope:** Resolved findings from the audit 01 review of `repo/`, with a brief note on how each was fixed.
 
 ---
