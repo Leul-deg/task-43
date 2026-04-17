@@ -76,6 +76,59 @@ def test_submit_and_results(client, app):
     assert response.status_code == 200
 
 
+def test_trainer_can_view_results_for_own_assessment(client, app):
+    """Trainer may GET results for a staff assignment on an assessment they created."""
+    with app.app_context():
+        trainer = User.query.filter_by(username="test_trainer").first()
+        staff = User.query.filter_by(username="test_staff").first()
+        assessment = Assessment(
+            title="Trainer Results View",
+            description="",
+            created_by=trainer.id,
+            passing_score_percent=70,
+        )
+        db.session.add(assessment)
+        db.session.flush()
+        question = Question(
+            assessment_id=assessment.id,
+            question_text="Pick A",
+            question_type="multiple_choice",
+            options='["A","B"]',
+            correct_answer="A",
+            points=1,
+        )
+        db.session.add(question)
+        assignment = AssessmentAssignment(
+            assessment_id=assessment.id,
+            user_id=staff.id,
+            assigned_by=trainer.id,
+            assigned_at=datetime.utcnow(),
+            status="assigned",
+        )
+        db.session.add(assignment)
+        db.session.commit()
+        aid = assignment.id
+        qid = question.id
+
+    login_as(client, "staff")
+    with app.app_context():
+        staff = User.query.filter_by(username="test_staff").first()
+    submit_data = {f"question_{qid}": "A"}
+    headers = hmac_headers(
+        staff, "POST", f"/assessments/assignments/{aid}/submit", submit_data
+    )
+    client.post(
+        f"/assessments/assignments/{aid}/submit",
+        data=submit_data,
+        headers=headers,
+        follow_redirects=False,
+    )
+
+    login_as(client, "trainer")
+    resp = client.get(f"/assessments/assignments/{aid}/results")
+    assert resp.status_code == 200
+
+
 def test_manual_grading_workflow(client, app):
     """Short-answer questions skip auto-grade; trainer must grade manually."""
     with app.app_context():
@@ -353,6 +406,76 @@ def test_mixed_question_type_submission_requires_manual_grade(client, app):
         assert result is None, "Auto-grade must not run when short_answer questions are present"
         a = AssessmentAssignment.query.get(assignment_id)
         assert a.status == "completed"
+
+
+def test_trainer_cannot_update_peer_assessment(client, app):
+    """Trainers may only mutate assessments they created."""
+    with app.app_context():
+        trainer_a = User.query.filter_by(username="test_trainer").first()
+        trainer_b = User(username="trainer_peer", role="trainer")
+        trainer_b.set_password("TestPassword123!")
+        db.session.add(trainer_b)
+        assessment = Assessment(
+            title="Peer Owned",
+            description="",
+            created_by=trainer_a.id,
+            passing_score_percent=70,
+        )
+        db.session.add(assessment)
+        db.session.commit()
+        assessment_id = assessment.id
+
+    client.post(
+        "/auth/login",
+        data={"username": "trainer_peer", "password": "TestPassword123!"},
+        follow_redirects=False,
+    )
+    with app.app_context():
+        trainer_b = User.query.filter_by(username="trainer_peer").first()
+    data = {"title": "Hijacked", "passing_score_percent": "80"}
+    headers = hmac_headers(trainer_b, "PUT", f"/assessments/{assessment_id}", data)
+    resp = client.put(
+        f"/assessments/{assessment_id}",
+        data=data,
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 403
+
+
+def test_trainer_cannot_grade_peer_assignment(client, app):
+    with app.app_context():
+        trainer_a = User.query.filter_by(username="test_trainer").first()
+        trainer_b = User(username="trainer_peer2", role="trainer")
+        trainer_b.set_password("TestPassword123!")
+        db.session.add(trainer_b)
+        staff = User.query.filter_by(username="test_staff").first()
+        assessment = Assessment(
+            title="Grade Guard",
+            description="",
+            created_by=trainer_a.id,
+            passing_score_percent=70,
+        )
+        db.session.add(assessment)
+        db.session.flush()
+        assignment = AssessmentAssignment(
+            assessment_id=assessment.id,
+            user_id=staff.id,
+            assigned_by=trainer_a.id,
+            assigned_at=datetime.utcnow(),
+            status="completed",
+        )
+        db.session.add(assignment)
+        db.session.commit()
+        assignment_id = assignment.id
+
+    client.post(
+        "/auth/login",
+        data={"username": "trainer_peer2", "password": "TestPassword123!"},
+        follow_redirects=False,
+    )
+    resp = client.get(f"/assessments/assignments/{assignment_id}/grade")
+    assert resp.status_code == 403
 
 
 def test_staff_cannot_access_grade_endpoint(client, app):

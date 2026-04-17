@@ -13,10 +13,11 @@
 - Server-side HMAC-SHA256 request signing via `/auth/sign` and JWT auth
 
 ## Quick Start (Docker — Demo/Evaluation)
-1. `docker compose up --build`
-2. Open http://localhost:5000 — you should see the Sports Hub login page
-3. Login: `admin` / `DemoAdmin2026Secure!` — you should land on the dashboard
-4. To create demo accounts for all roles: `docker compose exec web flask seed-demo-users`
+1. From this directory (`repo/`), copy environment defaults: `cp .env.example .env` (Compose loads `.env`; without this file, `docker compose` will fail.)
+2. `docker compose up --build`
+3. Open http://localhost:5000 — you should see the Sports Hub login page
+4. Login: `admin` / `DemoAdmin2026Secure!` — you should land on the dashboard
+5. To create demo accounts for all roles: `docker compose exec web flask seed-demo-users`
 
 The `.env.example` ships with `DEMO_MODE=true`, which allows the app to start with demo secrets for evaluation. A prominent warning is logged on startup.
 
@@ -35,9 +36,8 @@ The `.env.example` ships with `DEMO_MODE=true`, which allows the app to start wi
 ## Quick Start (Docker — Production)
 1. `cp .env.example .env`
 2. Replace all secrets with secure random values and remove `DEMO_MODE` (or set to `false`)
-3. Update `docker-compose.yml` to `env_file: .env`
-4. `docker compose up --build`
-5. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
+3. `docker compose up --build` (Compose uses `env_file: .env` by default.)
+4. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
 
 Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed secrets or known weak placeholders.
 
@@ -53,7 +53,13 @@ Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed s
 6. Open http://localhost:5000 — Login: `admin` / your `ADMIN_PASSWORD`
 
 ## Commands
-- Run tests: `./run_tests.sh` (outputs pytest summary; all tests should report PASSED)
+- Run tests in Docker: `./run_tests.sh` (builds the image and runs pytest; all tests should report PASSED)
+- Run tests locally (no Docker), from `repo/` with the same env vars as tests expect:
+  ```bash
+  export SECRET_KEY=test-secret-key-for-testing JWT_SECRET_KEY=test-jwt-secret-for-testing \
+    HMAC_SECRET=test-hmac-secret ADMIN_PASSWORD=SecureTestPass123!
+  python -m pytest unit_tests/ API_tests/ -v --tb=short
+  ```
 - Seed demo users: `flask seed-demo-users`
 - Ingest news: `flask ingest-news`
 - Cleanup nonces: `flask cleanup-nonces`
@@ -64,8 +70,9 @@ Without `DEMO_MODE=true`, the app refuses to start if it detects demo-prefixed s
 - **Sessions**: Short-lived JWT access tokens (30 min) stored in cookies, with refresh tokens capped at an absolute 8-hour session ceiling.
 - **HMAC Signing**: All mutating API requests require HMAC-SHA256 signatures. HMAC keys are stored server-side (encrypted with Fernet at rest) and never exposed to the client. The `/auth/sign` endpoint generates signatures server-side; the client calls this endpoint before submitting mutating requests.
 - **Anti-Replay**: Each signed request includes a nonce and timestamp. Nonces are stored for 24 hours to prevent replay; timestamp skew is limited to ±5 minutes.
-- **CSRF Protection**: Flask-WTF CSRF is enabled globally. HTMX requests include the CSRF token via a global `hx-headers` attribute on `<body>`. The `/auth/sign` endpoint validates CSRF tokens on all requests.
-- **Rate Limiting**: 60 requests/minute per authenticated user (keyed by JWT identity).
+- **CSRF Protection**: Flask-WTF CSRF is enabled globally (`WTF_CSRF_ENABLED`, default on). HTMX requests include the CSRF token via a global `hx-headers` attribute on `<body>`. The `/auth/sign` endpoint validates CSRF tokens on all requests.
+- **JWT cookies**: `JWT_COOKIE_CSRF_PROTECT` (default on), `JWT_COOKIE_SECURE` (set `true` behind HTTPS), and `JWT_COOKIE_SAMESITE` (default `Lax`) are configurable via environment — see `repo/app/config.py` and `.env.example`.
+- **Rate Limiting**: 60 requests/minute per authenticated user (keyed by JWT identity). Default storage is explicit in-memory (`RATELIMIT_STORAGE_URI=memory://`); set a Redis URI in production for multi-worker consistency.
 - **Anomaly Detection**: Rule-based alerts for repeated failed logins, rapid search bursts, and frequent reservation holds, recorded in `AnomalyAlert` and `AuditLog` tables for admin review.
 - **Sensitive Data**: HMAC keys encrypted with Fernet at rest; audit log IP addresses hashed with SHA-256 before storage.
 

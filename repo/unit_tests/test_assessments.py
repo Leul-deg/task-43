@@ -239,6 +239,35 @@ def test_add_update_delete_question(client, app):
         assert Question.query.get(q_id) is None
 
 
+def test_peer_trainer_cannot_update_question(client, app):
+    assessment_id, question_id, _ = _make_assessment_with_assignment(app)
+    with app.app_context():
+        peer = User(username="peer_trainer", role="trainer")
+        peer.set_password("TestPassword123!")
+        db.session.add(peer)
+        db.session.commit()
+
+    client.post(
+        "/auth/login",
+        data={"username": "peer_trainer", "password": "TestPassword123!"},
+        follow_redirects=False,
+    )
+    with app.app_context():
+        peer = User.query.filter_by(username="peer_trainer").first()
+    update_data = {"question_text": "Hacked", "question_type": "multiple_choice",
+                   "correct_answer": "A", "points": "1"}
+    headers = hmac_headers(
+        peer, "PUT", f"/assessments/questions/{question_id}", update_data
+    )
+    resp = client.put(
+        f"/assessments/questions/{question_id}",
+        data=update_data,
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 403
+
+
 def test_staff_cannot_view_other_staff_results(client, app):
     assessment_id, question_id, assignment_id = _make_assessment_with_assignment(app)
 

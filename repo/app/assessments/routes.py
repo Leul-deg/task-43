@@ -25,13 +25,25 @@ def _current_user():
     return User.query.get(identity) if identity else None
 
 
+def _trainer_owns_assessment(assessment):
+    """Trainers may only mutate or grade assessments they created."""
+    uid = get_jwt_identity()
+    return assessment and assessment.created_by == uid
+
+
 @assessments_bp.route("/", methods=["GET"])
 @jwt_required()
 @role_required("admin", "trainer", "staff")
 def index():
     user = _current_user()
-    if user and user.role in ("trainer", "admin"):
+    if user and user.role == "admin":
         assessments = Assessment.query.order_by(Assessment.created_at.desc()).all()
+    elif user and user.role == "trainer":
+        assessments = (
+            Assessment.query.filter_by(created_by=user.id)
+            .order_by(Assessment.created_at.desc())
+            .all()
+        )
     else:
         assessments = (
             Assessment.query.join(AssessmentAssignment)
@@ -69,6 +81,8 @@ def detail(assessment_id):
     assessment = Assessment.query.get_or_404(assessment_id)
     questions = Question.query.filter_by(assessment_id=assessment_id).all()
     user = _current_user()
+    if user and user.role == "trainer" and not _trainer_owns_assessment(assessment):
+        return abort(403)
     assignment = None
     if user and user.role == "staff":
         assignment = AssessmentAssignment.query.filter_by(
@@ -93,6 +107,8 @@ def detail(assessment_id):
 @hmac_required
 def update_assessment(assessment_id):
     assessment = Assessment.query.get_or_404(assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
     assessment.title = request.form.get("title", assessment.title)
     assessment.description = request.form.get("description", assessment.description)
     assessment.time_limit_minutes = (
@@ -113,6 +129,8 @@ def update_assessment(assessment_id):
 @hmac_required
 def toggle_publish(assessment_id):
     assessment = Assessment.query.get_or_404(assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
     assessment.is_published = not assessment.is_published
     db.session.commit()
     return render_template("assessments/partials/publish_button.html", assessment=assessment)
@@ -123,6 +141,9 @@ def toggle_publish(assessment_id):
 @role_required("trainer")
 @hmac_required
 def add_question(assessment_id):
+    assessment = Assessment.query.get_or_404(assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
     question = Question(
         assessment_id=assessment_id,
         question_text=request.form.get("question_text", ""),
@@ -142,6 +163,9 @@ def add_question(assessment_id):
 @hmac_required
 def update_question(question_id):
     question = Question.query.get_or_404(question_id)
+    assessment = Assessment.query.get_or_404(question.assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
     question.question_text = request.form.get("question_text", question.question_text)
     question.question_type = request.form.get("question_type", question.question_type)
     question.options = request.form.get("options", question.options)
@@ -157,6 +181,9 @@ def update_question(question_id):
 @hmac_required
 def delete_question(question_id):
     question = Question.query.get_or_404(question_id)
+    assessment = Assessment.query.get_or_404(question.assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
     db.session.delete(question)
     db.session.commit()
     return "", 204
@@ -167,6 +194,9 @@ def delete_question(question_id):
 @role_required("trainer")
 @hmac_required
 def assign_assessment(assessment_id):
+    assessment = Assessment.query.get_or_404(assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
     user_ids = request.form.getlist("user_ids")
     due_date = request.form.get("due_date")
     for user_id in user_ids:
@@ -304,10 +334,12 @@ def submit_assignment(assignment_id):
 def results(assignment_id):
     assignment = AssessmentAssignment.query.get_or_404(assignment_id)
     user = _current_user()
+    assessment = Assessment.query.get_or_404(assignment.assessment_id)
+    if user and user.role == "trainer" and not _trainer_owns_assessment(assessment):
+        return abort(403)
     if user and user.role == "staff" and assignment.user_id != user.id:
         return abort(403)
     questions = Question.query.filter_by(assessment_id=assignment.assessment_id).all()
-    assessment = Assessment.query.get_or_404(assignment.assessment_id)
     answers = UserAnswer.query.filter_by(assignment_id=assignment.id).all()
     result = AssessmentResult.query.filter_by(assignment_id=assignment.id).first()
 
@@ -341,8 +373,10 @@ def results(assignment_id):
 @hmac_required
 def grade(assignment_id):
     assignment = AssessmentAssignment.query.get_or_404(assignment_id)
-    questions = Question.query.filter_by(assessment_id=assignment.assessment_id).all()
     assessment = Assessment.query.get_or_404(assignment.assessment_id)
+    if not _trainer_owns_assessment(assessment):
+        return abort(403)
+    questions = Question.query.filter_by(assessment_id=assignment.assessment_id).all()
     answers = UserAnswer.query.filter_by(assignment_id=assignment.id).all()
     if request.method == "POST":
         total_score = 0

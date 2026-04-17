@@ -39,7 +39,7 @@ def test_timestamp_skew_rejected(client, app):
     timestamp = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
     nonce = "skew-nonce"
     payload = f"POST/search/saved{timestamp}{body_hash}{nonce}".encode("utf-8")
-    signature = hmac.new(user.hmac_key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    signature = hmac.new(user.get_hmac_key().encode("utf-8"), payload, hashlib.sha256).hexdigest()
     headers = {"X-Signature": signature, "X-Timestamp": timestamp, "X-Nonce": nonce}
     response = client.post("/search/saved", data=data, headers=headers)
     assert response.status_code == 401

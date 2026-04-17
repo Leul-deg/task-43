@@ -34,9 +34,14 @@ def _should_backoff(filename):
     )
     if not last or not last.completed_at:
         return False, 0
-    backoff_map = {0: timedelta(minutes=1), 1: timedelta(minutes=1), 2: timedelta(minutes=5), 3: timedelta(minutes=15)}
-    retry_count = min(last.retries, 3)
-    backoff = backoff_map.get(retry_count, timedelta(minutes=15))
+    # After failure N, wait before retry: 1m, 5m, 15m (prompt-aligned).
+    backoff_by_failures = {
+        1: timedelta(minutes=1),
+        2: timedelta(minutes=5),
+        3: timedelta(minutes=15),
+    }
+    retry_count = min(max(last.retries, 1), 3)
+    backoff = backoff_by_failures.get(retry_count, timedelta(minutes=15))
     if utcnow() - last.completed_at < backoff:
         return True, last.retries
     return False, last.retries
